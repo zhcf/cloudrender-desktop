@@ -1,0 +1,14 @@
+{
+  "name": "cloudrender-js-client",
+  "version": "1.0.0",
+  "description": "CloudRender 通用云桌面 JavaScript 客户端 SDK + Demo",
+  "type": "module",
+  "main": "src/cloudrender.js",
+  "exports": {
+    ".": "./src/cloudrender.js"
+  },
+  "scripts": {
+    "test": "node tools/contract_test.mjs"
+  },
+  "license": "MIT"
+}

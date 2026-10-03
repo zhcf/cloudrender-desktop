@@ -1,0 +1,8 @@
+# CloudRender Python SDK 依赖
+aiohttp>=3.9
+aiortc>=1.7        # WebRTC(含 av/numpy 依赖链)
+numpy>=1.24
+mss>=9.0           # 纯 Python 桌面捕获 fallback(可选,但 Demo 默认依赖)
+
+# 可选:
+#   pydub / 无 — v1 不支持音频轨

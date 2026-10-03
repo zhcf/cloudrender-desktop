@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudRender 云桌面 Demo</title>
+  <link rel="stylesheet" href="style.css?v=14">
+</head>
+<body>
+  <header id="toolbar">
+    <div class="brand">CloudRender <span>云桌面 Demo</span></div>
+    <div class="controls">
+      <!-- 页面由服务端内置托管(与 /ws 同端口),信令地址自动取同源;?ws= 可覆盖 -->
+      <button id="btn-connect">Connect</button>
+      <button id="btn-lock" title="锁定远端桌面(等效 Ctrl+Alt+Del→锁定 / Win+L)">锁屏</button>
+      <button id="btn-fullscreen" title="浏览器全屏(本地,等效 F11;Esc 退出)">全屏</button>
+      <label class="chk"><input type="checkbox" id="opt-pointerlock"> 鼠标锁定(相对模式,打字需关闭)</label>
+    </div>
+    <div id="status-bar">
+      <span class="dot" id="state-dot"></span><span id="state-text">未连接</span>
+      <span class="stat" id="stat-fps">-- fps</span>
+      <span class="stat" id="stat-br">-- kbps</span>
+      <span class="stat" id="stat-res">--x--</span>
+      <span class="stat" id="stat-sess"></span>
+    </div>
+  </header>
+
+  <main id="stage">
+    <video id="screen" autoplay playsinline muted></video>
+    <!-- 隐藏键盘捕获区:点击画面后聚焦,软键盘弹起,字符/删除/回车直接发远端 -->
+    <textarea id="kbd-capture" autocapitalize="off" autocomplete="off"
+              autocorrect="off" spellcheck="false"></textarea>
+    <div id="overlay" class="hidden">
+      <div class="overlay-inner">
+        <p>已连接。</p>
+        <p id="hint-lock">① 点击画面获取焦点,键盘/鼠标即发送到远端;开启"鼠标锁定"进入相对模式。
+        ② 触控屏可直接操作:单指=点击/拖拽,双指上下滑=滚轮,三指=右键。
+        Tips: Windows 下默认注入最高权限受限(UIPI),建议以管理员运行服务端或关闭目标应用的完整性保护。</p>
+      </div>
+    </div>
+  </main>
+
+  <footer id="log"></footer>
+
+  <script type="module" src="app.js?v=14"></script>
+</body>
+</html>

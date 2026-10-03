@@ -1,0 +1,21 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+
+# ---- C++ 构建产物(CMake/VS 输出,可重新生成) ----
+server/cpp/nativecore/build/
+server/cpp/sdk/build/
+server/cpp/sdk/build_sw/
+
+# ---- VS 中间文件 ----
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.user
+.vs/
+
+# ---- 日志与临时 ----
+*.log
+*.tmp
