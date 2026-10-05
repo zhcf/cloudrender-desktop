@@ -1,207 +1,207 @@
-# CloudRender 协议规范 v1
+# CloudRender protocol specification v1
 
-本协议是 CloudRender 云桌面各语言实现之间互通的唯一契约。JSON 字段一律 `snake_case`;二进制协议一律小端(Little Endian)。
+This protocol is the single contract for interoperability between all CloudRender language implementations. JSON fields are always `snake_case`; binary protocols are always little-endian.
 
-适用两种渲染模式,两者使用同一条数据链路与消息结构:
+It applies to two rendering modes that share one data path and message structure:
 
-1. **通用云桌面(VDI)模式**(主线):服务端渲染源 = OS 桌面/窗口截屏捕获,输入落点 = OS 级注入——任何软件零改造即可被流送与操作;
-2. **引擎内嵌模式**(附赠):渲染引擎(Unity/UE/自研)主动把帧供给 SDK。
+1. **Generic cloud desktop (VDI) mode** (mainline): the server render source = OS desktop/window screen capture, and input lands as OS-level injection — any software can be streamed and operated with zero modification;
+2. **Engine embedding mode** (bonus): a rendering engine (Unity/UE/custom) supplies frames to the SDK actively.
 
-两种模式仅替换服务端 `FrameSource` / `InputInjector` 的实现,线上协议完全一致,客户端零差异。
+Both modes only swap the server `FrameSource` / `InputInjector` implementations; the wire protocol is fully identical and clients see zero difference.
 
 ```
-URN 标识: urn:cloudrender:protocol:v1
+URN: urn:cloudrender:protocol:v1
 ```
 
 ---
 
-## 1. 信令协议(WebSocket + JSON)
+## 1. Signaling protocol (WebSocket + JSON)
 
-信令通道地址示例:`ws://host:8080/ws?token=xxx&width=1920&height=1080`
+Example signaling channel address: `ws://host:8080/ws?token=xxx&width=1920&height=1080`
 
-服务端可强制要求认证,`token` 为可选的鉴权凭据。信令仅用于建立会话、交换 SDP/ICE,会话建立后媒体与输入均走 WebRTC。
+The server may require authentication; `token` is the optional credential. Signaling is only used to establish the session and exchange SDP/ICE; once the session is up, both media and input run over WebRTC.
 
-### 1.1 连接流程
+### 1.1 Connection flow
 
 ```
-客户端                                        服务端
+Client                                        Server
    │── connect(client_info) ──────────────────►│
    │◄── connected(session_id, server_caps) ────│
-   │◄── ready(resolution, codec, source) ──────│   ← 视频轨已就绪(SDP 协商前)
-   │◄── offer(sdp) ────────────────────────────│   ← 必须晚于 connected:客户端靠 connected 创建 RTCPeerConnection
+   │◄── ready(resolution, codec, source) ──────│   ← video track ready (before SDP negotiation)
+   │◄── offer(sdp) ────────────────────────────│   ← must come after connected: the client creates its RTCPeerConnection on connected
    │── answer(sdp) ────────────────────────────►│
    │── ice(candidate) ────────────────────────►│
    │◄── ice(candidate) ────────────────────────│
-   │                        (DTLS/ICE 握手、DataChannel/media 建立)
-   │── stats(...)  ◄──────────── 心跳 ─────────►│── stats(...)
-   │── 键鼠/手柄/触摸 ...        (DataChannel "input",见 §3)
+   │                        (DTLS/ICE handshake, DataChannel/media established)
+   │── stats(...)  ◄──────────── heartbeat ────►│── stats(...)
+   │── keyboard/mouse/gamepad/touch ...        (DataChannel "input", see §3)
 ```
 
-### 1.2 消息结构
+### 1.2 Message structure
 
-每条消息一个 JSON 对象,必须携带 `type`:
+Each message is one JSON object and must carry `type`:
 
 ```json
 { "type": "connect", "seq": 1, "payload": { ... } }
 ```
 
-`seq` 为客户端递增序号,服务端回复带相同 `seq` 的消息用于关联(可选)。
+`seq` is a client-incrementing sequence number; server replies carrying the same `seq` are used for correlation (optional).
 
-### 1.3 客户端 → 服务端
+### 1.3 Client → Server
 
-| type | payload 字段 | 说明 |
+| type | payload fields | description |
 |---|---|---|
-| `connect` | `client_info{type: "web"\|"unity"\|"ue"\|"other", width, height, video_codecs[], audio: bool, platform, sdk_version}` | 建立会话。`width/height` 为期望分辨率;云桌面模式下服务端以捕获源实际分辨率为准(可缩放) |
-| `answer` | `sdp: string` | WebRTC Answer SDP 文本或 `{type, sdp}` 对象 |
-| `ice` | `candidate: string 或 {candidate, sdpMid, sdpMLineIndex}` | 客户端 ICE 候选 |
-| `stats` | `stats{...}` | 客户端统计(见 §4),周期 1~2s |
-| `lock_screen` | — | 锁定远端桌面(服务端执行 LockWorkStation,等效 Win+L)。锁屏后画面切到安全桌面,可直接输入密码解锁 |
-| `disconnect` | `reason: string` | 主动断开 |
+| `connect` | `client_info{type: "web"\|"unity"\|"ue"\|"other", width, height, video_codecs[], audio: bool, platform, sdk_version}` | Establish the session. `width/height` are the desired resolution; in cloud desktop mode the server uses the capture source's actual resolution (scalable) |
+| `answer` | `sdp: string` | WebRTC Answer SDP text, or a `{type, sdp}` object |
+| `ice` | `candidate: string or {candidate, sdpMid, sdpMLineIndex}` | Client ICE candidate |
+| `stats` | `stats{...}` | Client stats (see §4), every 1–2s |
+| `lock_screen` | — | Lock the remote desktop (the server calls LockWorkStation, equivalent to Win+L). After locking, the picture switches to the secure desktop and the password can be typed directly to unlock |
+| `disconnect` | `reason: string` | Disconnect voluntarily |
 
-### 1.4 服务端 → 客户端
+### 1.4 Server → Client
 
-| type | payload 字段 | 说明 |
+| type | payload fields | description |
 |---|---|---|
-| `connected` | `session_id: string, server_caps{max_resolution{width,height}, codecs[], audio: bool, max_sessions}` | 会话已创建 |
-| `offer` | `sdp: string` | WebRTC Offer SDP;服务端为 offer 方(云桌面标准做法,便于动态分辨率协商) |
-| `ice` | `candidate` | 服务端 ICE 候选 |
-| `ready` | `resolution{width,height}, codec, bitrate_kbps, source: "desktop"\|"window"\|"engine"` | 视频轨就绪 |
-| `stats` | `stats{...}` | 服务端统计(§4) |
-| `error` | `code: int, message: string, fatal: bool` | 错误。fatal 时服务端随后主动关闭 |
-| `close` | `reason: string` | 会话结束 |
+| `connected` | `session_id: string, server_caps{max_resolution{width,height}, codecs[], audio: bool, max_sessions}` | Session created |
+| `offer` | `sdp: string` | WebRTC Offer SDP; the server is the offerer (standard for cloud desktops; enables dynamic resolution negotiation) |
+| `ice` | `candidate` | Server ICE candidate |
+| `ready` | `resolution{width,height}, codec, bitrate_kbps, source: "desktop"\|"window"\|"engine"` | Video track ready |
+| `stats` | `stats{...}` | Server stats (§4) |
+| `error` | `code: int, message: string, fatal: bool` | Error. When fatal, the server closes the connection afterwards |
+| `close` | `reason: string` | Session ended |
 
-### 1.5 错误码
+### 1.5 Error codes
 
-| code | 含义 |
+| code | meaning |
 |---|---|
-| 4001 | 未认证(token 无效) |
-| 4002 | 会话数已达上限 |
-| 4003 | 参数非法(不支持的分辨率/编解码等) |
-| 4100 | WebRTC 协商失败(无法建立 PeerConnection) |
-| 4101 | ICE 超时 |
-| 4102 | 编码器启动失败 |
-| 5000 | 服务端内部错误 |
+| 4001 | unauthenticated (invalid token) |
+| 4002 | session limit reached |
+| 4003 | invalid parameters (unsupported resolution/codec etc.) |
+| 4100 | WebRTC negotiation failed (cannot establish PeerConnection) |
+| 4101 | ICE timeout |
+| 4102 | encoder startup failed |
+| 5000 | server internal error |
 
 ---
 
-## 2. WebRTC 媒体与数据通道
+## 2. WebRTC media and data channels
 
-### 2.1 媒体拓扑
+### 2.1 Media topology
 
-- **方向**:单向 —— 服务端只发不收(recvonly → sendonly)。
-- **视频轨**(mid 语义固定):编码优先级 `H264 > VP8 > AV1`,必须在 offer 的 m-line 中列出(云桌面场景 H264 便于 GPU 硬编/硬解)。默认 30fps。
-- **音频轨**:可选,编码 `opus/48000/2`。默认关闭。
-- **SDP 约定**:客户端 answer 时只能挑选 offer 中已列出的编解码与分辨率,不得新增。
+- **Direction**: unidirectional — the server only sends (recvonly → sendonly).
+- **Video track** (fixed mid semantics): codec priority `H264 > VP8 > AV1`, which must be listed in the offer m-lines (H264 enables GPU hardware encode/decode for cloud desktop scenarios). Default 30fps.
+- **Audio track**: optional, codec `opus/48000/2`. Off by default.
+- **SDP rule**: the client answer may only pick codecs and resolutions already listed in the offer; it must not add new ones.
 
-### 2.2 DataChannel 清单
+### 2.2 DataChannel list
 
-| 通道名 | 方向 | 可靠 | 用途 |
+| channel | direction | reliable | purpose |
 |---|---|---|---|
-| `input` | C→S | 有序可靠 | 输入事件流(§3) |
-| `events` | S→C | 有序可靠 | 系统事件:光标位、质量调节、文本、提示 |
+| `input` | C→S | ordered reliable | input event stream (§3) |
+| `events` | S→C | ordered reliable | system events: cursor position, quality adjustments, text, notices |
 
-两个通道由**服务端**创建(id 顺序不敏感,按 label 匹配)。
+Both channels are created by the **server** (id order is irrelevant; matched by label).
 
-### 2.3 media 常见异常处理
+### 2.3 Common media exception handling
 
-- 客户端解码失败 → 通过 WebSocket 发 `{"type":"video_lost"}` 请求关键帧。
-- 服务端收到 `video_lost` → 编码器发送下一个视频关键帧(IDR)。
+- Client decode failure → send `{"type":"video_lost"}` over the WebSocket to request a keyframe.
+- Server receives `video_lost` → the encoder emits the next video keyframe (IDR).
 
 ---
 
-## 3. 输入协议(DataChannel `input`,二进制)
+## 3. Input protocol (DataChannel `input`, binary)
 
-### 3.0 帧格式
+### 3.0 Frame format
 
 ```
 +-----------+-----------+-------------+-------------+------------------------+
-|  magic(4) | ver(1)    | seq(4,u32)  | n(1,u8)     | events(n × 变长)        |
-| "CRIN"    | 0x01      | 帧序号      | 事件个数    |                         |
+|  magic(4) | ver(1)    | seq(4,u32)  | n(1,u8)     | events(n × variable)   |
+| "CRIN"    | 0x01      | frame seq   | event count |                        |
 +-----------+-----------+-------------+-------------+------------------------+
 ```
 
-magic = `0x43 0x52 0x49 0x4E`("CRIN"),小端校验。
+magic = `0x43 0x52 0x49 0x4E` ("CRIN"), little-endian check.
 
-每个 event 结构:`| kind(1,u8) | ts(8,u64,毫秒) | body(变长) |`
+Each event is: `| kind(1,u8) | ts(8,u64, milliseconds) | body(variable) |`
 
-### 3.1 键盘 `kind = 0x01`
-
-```
-| down(1,u8: 1按下/0抬起) | key_code(4,u32) | modifiers(1,u8 位掩码) | repeat(1,u8) |
-```
-
-- `key_code`:**FNV-1a(32 bit)哈希** 作用于 W3C `KeyboardEvent.code` 字符串(如 `"KeyA"`).各语言 SDK 实现同一个哈希函数即可互通;服务端协议层负责 `code → 平台键码(VK 等)` 的映射。
-  - FNV-1a/32 参数:offset basis `0x811C9DC5`,prime `0x01000193`,小端输出。
-- `modifiers` 位:0x01 Shift,0x02 Ctrl,0x04 Alt,0x08 Meta。
-
-### 3.2 鼠标移动 `kind = 0x02`
+### 3.1 Keyboard `kind = 0x01`
 
 ```
-| x(4,f32 归一化 0..1,相对画面左上角) | y(4,f32) | dx(2,i16,像素增量) | dy(2,i16) |
+| down(1,u8: 1 press / 0 release) | key_code(4,u32) | modifiers(1,u8 bitmask) | repeat(1,u8) |
 ```
 
-`dx/dy` 用于鼠标锁定(pointer-lock)模式(相对移动);非锁定模式客户端填 0,服务端用 `x/y` 按捕获分辨率换算绝对坐标注入。
+- `key_code`: **FNV-1a (32-bit) hash** of the W3C `KeyboardEvent.code` string (e.g. `"KeyA"`). Every language SDK implementing the same hash interoperates; the server protocol layer maps `code → platform key code (VK etc.)`.
+  - FNV-1a/32 parameters: offset basis `0x811C9DC5`, prime `0x01000193`, little-endian output.
+- `modifiers` bits: 0x01 Shift, 0x02 Ctrl, 0x04 Alt, 0x08 Meta.
 
-### 3.3 鼠标按键 `kind = 0x03`
-
-```
-| button(1,u8: 0左 1中 2右 3侧键1 4侧键2) | down(1,u8) | clicks(1,u8) |
-```
-
-### 3.4 滚轮 `kind = 0x04`
+### 3.2 Mouse move `kind = 0x02`
 
 ```
-| delta_x(4,f32) | delta_y(4,f32) | ctrl(1,u8: 用于缩放手势) |
+| x(4,f32 normalized 0..1, relative to the top-left of the picture) | y(4,f32) | dx(2,i16, pixel delta) | dy(2,i16) |
 ```
 
-### 3.5 手柄 `kind = 0x05`
+`dx/dy` are used by pointer-lock mode (relative movement); in non-lock mode the client sends 0 and the server converts `x/y` to absolute coordinates using the capture resolution.
+
+### 3.3 Mouse buttons `kind = 0x03`
 
 ```
-| index(1,u8: 手柄序号 0..) | dpad(1,u8 位:上下左右) |
-| buttons(4,u32 位掩码: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start 8=LS按下 9=RS按下) |
+| button(1,u8: 0 left / 1 middle / 2 right / 3 side1 / 4 side2) | down(1,u8) | clicks(1,u8) |
+```
+
+### 3.4 Wheel `kind = 0x04`
+
+```
+| delta_x(4,f32) | delta_y(4,f32) | ctrl(1,u8: for pinch zoom) |
+```
+
+### 3.5 Gamepad `kind = 0x05`
+
+```
+| index(1,u8: gamepad index 0..) | dpad(1,u8 bits: up/down/left/right) |
+| buttons(4,u32 bitmask: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start 8=LS press 9=RS press) |
 | lx(4,f32 -1..1) | ly(4,f32) | rx(4,f32) | ry(4,f32) | lt(4,f32) | rt(4,f32) |
 ```
 
-### 3.6 触摸 `kind = 0x06`
+### 3.6 Touch `kind = 0x06`
 
 ```
-| id(1,u8 触点id) | phase(1,u8: 0开始 1移动 2结束 3取消) | x(4,f32 归一化) | y(4,f32) | pressure(4,f32 0..1) |
+| id(1,u8 touch id) | phase(1,u8: 0 start / 1 move / 2 end / 3 cancel) | x(4,f32 normalized) | y(4,f32) | pressure(4,f32 0..1) |
 ```
 
-服务端按 noVNC 惯例把触摸映射为鼠标注入(Windows 无通用触摸注入 API):
+The server maps touches to mouse injection following the noVNC convention (Windows has no generic touch-injection API):
 
-- 单指:tap = 左键点击,拖动 = 左键拖拽;
-- 双指:上下滑动 = 滚轮滚动(进入双指时先松开左键);
-- 三指:tap = 右键。
+- One finger: tap = left click, drag = left drag;
+- Two fingers: vertical swipe = wheel scroll (release the left button when the second finger lands);
+- Three fingers: tap = right click.
 
-### 3.7 文本 `kind = 0x07`
-
-```
-| length(2,u16) | utf8(length 字节) |
-```
-
-用于 IME 输入等无法用 key_code 表达的字符串(云桌面模式下服务端转换为 Unicode 按键注入)。
-
-### 3.8 自定义/扩展 `kind = 0x7F`
+### 3.7 Text `kind = 0x07`
 
 ```
-| plugin_id(1,u8) | length(2,u16) | data(length 字节) |
+| length(2,u16) | utf8(length bytes) |
+```
+
+For strings that cannot be expressed with key_code, such as IME input (in cloud desktop mode the server converts them to Unicode key injection).
+
+### 3.8 Custom/extension `kind = 0x7F`
+
+```
+| plugin_id(1,u8) | length(2,u16) | data(length bytes) |
 ```
 
 ---
 
-## 4. 事件与统计
+## 4. Events and stats
 
-### 4.1 `events` 通道(S→C,二进制 = §3.0 结构用 magic `"CREV"`)
+### 4.1 `events` channel (S→C, binary = §3.0 layout with magic `"CREV"`)
 
-| kind | 名称 | 内容 |
+| kind | name | content |
 |---|---|---|
-| 0x01 | `cursor_pos` | `| x(f32) | y(f32) |` 服务端渲染出的光标位置(捕获含系统光标时可不发,客户端自行决定是否隐藏本地光标) |
-| 0x02 | `quality` | `| target_bitrate(4,u32) | fps(1,u8) |` 码率自适应调整建议 |
-| 0x03 | `toast` | `| length(2,u16) | utf8 |` 提示文本 |
-| 0x04 | `pong` | `| seq(4,u32) |` 心跳应答 |
+| 0x01 | `cursor_pos` | `| x(f32) | y(f32) |` cursor position rendered by the server (can be omitted when the capture includes the system cursor; the client decides whether to hide the local cursor) |
+| 0x02 | `quality` | `| target_bitrate(4,u32) | fps(1,u8) |` bitrate adaptation hint |
+| 0x03 | `toast` | `| length(2,u16) | utf8 |` notice text |
+| 0x04 | `pong` | `| seq(4,u32) |` heartbeat reply |
 
-### 4.2 `stats` 消息(信令通道双向)
+### 4.2 `stats` message (both directions on the signaling channel)
 
 ```json
 {
@@ -211,17 +211,17 @@ magic = `0x43 0x52 0x49 0x4E`("CRIN"),小端校验。
     "clock_ms": 1720000000000,
     "video": {"fps_sent": 30, "bitrate_kbps": 3500, "qp": 26, "encoder": "h264", "frame_drop": 2},
     "network": {"rtt_ms": 15, "packet_loss": 0.001, "jitter_ms": 2},
-    "decode": {"fps": 29.8, "latency_ms": 42}        // 仅客户端填
+    "decode": {"fps": 29.8, "latency_ms": 42}        // client fills only
   }
 }
 ```
 
-服务端据 `decode` 数据做码率自适应(区间 [min_bitrate, max_bitrate])。
+The server uses the `decode` data for bitrate adaptation (range [min_bitrate, max_bitrate]).
 
 ---
 
-## 5. 会话生命周期与断线重连
+## 5. Session lifecycle and reconnection
 
-1. 客户端异常断开 → 服务端在 5s 内(ICE disconnected 判定,可配)结束会话,释放捕获/渲染实例。
-2. 客户端重连:重新走完整 §1.1 流程,获新 `session_id`。
-3. 服务端关闭 → 先发 `close`,再关闭 WebSocket。
+1. Client drops unexpectedly → the server ends the session within 5s (ICE disconnected detection, configurable) and releases the capture/render instances.
+2. Client reconnect: repeat the full §1.1 flow to obtain a new `session_id`.
+3. Server shutdown → send `close` first, then close the WebSocket.

@@ -92,7 +92,7 @@ class CppCloudRenderServer:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_UNAUTHORIZED, message="token 无效", fatal=True))
+                "error", code=protocol.ERR_UNAUTHORIZED, message="invalid token", fatal=True))
             await ws.close(code=4401)
             return ws
 
@@ -104,12 +104,12 @@ class CppCloudRenderServer:
             first = await asyncio.wait_for(ws.receive_json(), timeout=10.0)
         except asyncio.TimeoutError:
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_BAD_PARAM, message="connect 超时", fatal=True))
+                "error", code=protocol.ERR_BAD_PARAM, message="connect timed out", fatal=True))
             await ws.close()
             return ws
         if first.get("type") != "connect":
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_BAD_PARAM, message="首条消息必须为 connect", fatal=True))
+                "error", code=protocol.ERR_BAD_PARAM, message="first message must be 'connect'", fatal=True))
             await ws.close()
             return ws
         client_info = (first.get("payload") or {}).get("client_info") or {}
@@ -125,7 +125,7 @@ class CppCloudRenderServer:
         await self._kick_duplicate_sessions(remote)
         if len(self._sessions) >= self.max_sessions:
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_MAX_SESSIONS, message="会话数已达上限", fatal=True))
+                "error", code=protocol.ERR_MAX_SESSIONS, message="session limit reached", fatal=True))
             await ws.close(code=4402)
             return ws
 
@@ -314,7 +314,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="CloudRender 信令壳(媒体核心:cloudrender_session.dll)")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--token", default=None, help="连接鉴权 token(缺省不校验)")
     parser.add_argument("--max-sessions", type=int, default=1,
                         help="并发会话上限(nativecore 抓屏同显示器互斥,默认 1)")
@@ -343,7 +343,14 @@ def main() -> None:
         wdesktop_port=args.wdesktop_port)
     logger.info("CloudRender C++ 会话核心信令壳启动: http://%s:%d "
                 "(内置 Web UI,页面与信令同端口)", args.host, args.port)
-    server.run()
+    try:
+        server.run()
+    except OSError as exc:
+        if exc.errno == 10048:  # WSAEADDRINUSE
+            logger.error("端口 %d 已被占用:请先关闭正在运行的服务端实例,"
+                         "或用 --port 指定其他端口后重试", args.port)
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

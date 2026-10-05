@@ -205,8 +205,6 @@ def spawn_wdesktop_worker(port: int, token: str,
     """
     if sys.platform != "win32":
         return None
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "wdesktop_worker.py")
     if not enable_privilege("SeDebugPrivilege"):
         logger.warning("SeDebugPrivilege 开启失败(服务端需以管理员运行),"
                        "无法启动锁屏画面 worker")
@@ -220,8 +218,16 @@ def spawn_wdesktop_worker(port: int, token: str,
                        active)
         return None
     try:
-        cmd = ('"%s" "%s" --port %d --parent %d --token %s'
-               % (sys.executable, script, port, os.getpid(), token))
+        if getattr(sys, "frozen", False):
+            # 冻结模式(PyInstaller):无 .py 脚本可执行,worker 以本 exe 的
+            # --wdesktop-worker 分发模式重启(入口 stub 识别该标记)
+            cmd = ('"%s" --wdesktop-worker --port %d --parent %d --token %s'
+                   % (sys.executable, port, os.getpid(), token))
+        else:
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "wdesktop_worker.py")
+            cmd = ('"%s" "%s" --port %d --parent %d --token %s'
+                   % (sys.executable, script, port, os.getpid(), token))
         if log_path:
             cmd += ' --log "%s"' % log_path
         buf = ctypes.create_unicode_buffer(cmd)

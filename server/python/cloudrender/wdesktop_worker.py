@@ -56,6 +56,7 @@ gdi32 = ctypes.windll.gdi32
 DESKTOP_ACCESS = 0x02000000        # MAXIMUM_ALLOWED(由 ACL 授予 SYSTEM 最大权限)
 MAXIMUM_ALLOWED = 0x02000000
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+SYNCHRONIZE = 0x00100000           # 供 WaitForSingleObject 判父进程存活
 MAPVK_VK_TO_VSC = 0
 MAPVK_VK_TO_CHAR = 2
 PM_NOREMOVE = 0
@@ -260,14 +261,23 @@ def check_reload() -> None:
 
 
 def parent_alive() -> bool:
+    """父进程是否仍存活。
+
+    注意: OpenProcess 成功不代表父进程存活——进程已终止但句柄未全
+    部释放时仍可能打开(实测可达数分钟),须用 WaitForSingleObject 判
+    哨兵态(已终止进程的句柄恒为有信号)。否则 worker 会在父进程死亡
+    后多存活数分钟,其间 keeper 已换新实例,旧实例残留重复占用端口。
+    """
     if not _parent_pid:
         return True
-    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False,
-                             _parent_pid)
-    if h:
+    h = kernel32.OpenProcess(SYNCHRONIZE, False, _parent_pid)
+    if not h:
+        return False
+    try:
+        # 0 == WAIT_OBJECT_0(已退出);WAIT_TIMEOUT(0x102)表示仍存活
+        return kernel32.WaitForSingleObject(h, 0) != 0
+    finally:
         kernel32.CloseHandle(h)
-        return True
-    return False
 
 
 def winlogon_handle():
@@ -948,7 +958,11 @@ def main() -> None:
     kernel32.ProcessIdToSessionId(kernel32.GetCurrentProcessId(),
                                   ctypes.byref(sid))
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # 必须独占绑定: SO_REUSEADDR 在 Windows 上允许同端口多重绑定,旧
+    # worker 残留时新实例"绑定成功"却收不到连接(连接投递给最老实例),
+    # keeper 探活失败后反复重拉,滚出满屏重复进程
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
     try:
         srv.bind(("127.0.0.1", args.port))
     except OSError as exc:

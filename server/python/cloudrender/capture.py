@@ -379,7 +379,7 @@ class _DxgiGrabber(_ScreenGrabber):
             for _ in range(20):
                 if secure_desktop_active():
                     raise RuntimeError(
-                        "安全桌面激活(锁屏/UAC),放弃 DXGI 重建")
+                        "secure desktop active (lock screen/UAC); skipping DXGI rebuild")
                 try:
                     cam._stagesurf.rebuild(output=cam._output,
                                            device=cam._device)
@@ -390,7 +390,7 @@ class _DxgiGrabber(_ScreenGrabber):
                     last_exc = exc
                     time.sleep(0.05)
             raise RuntimeError(
-                "DXGI Duplication 重建限次失败: %s" % (last_exc,))
+                "DXGI Duplication rebuild failed after retries: %s" % (last_exc,))
 
         cam._on_output_change = _guarded
 
@@ -419,10 +419,10 @@ class _DxgiGrabber(_ScreenGrabber):
                 _dxgi_active.pop(self._output_idx, None)
             else:
                 raise RuntimeError(
-                    f"DXGI output {self._output_idx} 已被本进程另一会话占用")
+                    f"DXGI output {self._output_idx} is already held by another session in this process")
         cam = self._create_cam()
         if cam is None:
-            raise RuntimeError("DXGI Duplication 初始化失败(output 不存在或被独占)")
+            raise RuntimeError("DXGI Duplication init failed (output missing or exclusively held)")
         self._cam = cam
         self._last_use = time.monotonic()
         _dxgi_active[self._output_idx] = self
@@ -535,7 +535,7 @@ def _make_grabber(backend: str, sct) -> _ScreenGrabber:
                 grabber.start()
             except Exception as exc:
                 if backend == "dxgi":
-                    raise RuntimeError(f"DXGI 抓屏启动失败: {exc}") from exc
+                    raise RuntimeError(f"DXGI capture start failed: {exc}") from exc
                 logger.warning("DXGI 抓屏不可用(%s),回退 mss 软抓", exc)
             else:
                 logger.info("抓屏后端: DXGI Desktop Duplication(零拷贝)")
@@ -840,7 +840,7 @@ class WindowMssSource(MssScreenSource):
                         self._window_title)
             return
         if not ctypes.windll.user32.IsWindow(self._window_hwnd):
-            raise RuntimeError("窗口句柄已失效(hwnd=0x%x)" % self._window_hwnd)
+            raise RuntimeError("window handle is stale (hwnd=0x%x)" % self._window_hwnd)
         rect = _window_rect(self._window_hwnd)
         if rect is None:
             # 窗口最小化:允许会话建立,窗口恢复后自动出画(期间推黑色帧)
@@ -971,11 +971,17 @@ def find_nativecore() -> Optional[ctypes.CDLL]:
     import sys
 
     candidates = []
+    if getattr(sys, "frozen", False):
+        # PyInstaller 冻结模式:add-binary 打入包目录与资源根两处
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        candidates.append(os.path.join(base, "cloudrender", "nativecore.dll"))
+        candidates.append(os.path.join(base, "nativecore.dll"))
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.abspath(os.path.join(here, "..", "..", ".."))
     candidates.append(os.path.join(here, "nativecore.dll"))
     candidates += sorted(glob.glob(
-        os.path.join(repo, "cpp", "nativecore", "build", "**", "nativecore.dll"),
+        os.path.join(repo, "server", "cpp", "nativecore", "build", "**",
+                     "nativecore.dll"),
         recursive=True), reverse=True)
     candidates.append("nativecore.dll")
     for path in candidates:
@@ -1042,7 +1048,7 @@ class NativeCoreCaptureSource(FrameSource):
     async def start(self) -> None:
         self._lib = find_nativecore()
         if self._lib is None:
-            raise RuntimeError("nativecore.dll 未找到(可改用 MssScreenSource)")
+            raise RuntimeError("nativecore.dll not found (use MssScreenSource instead)")
         self._proto(self._lib)
         _keepalive.append(self)  # 防止 nativecore 库对象被回收
 
@@ -1068,18 +1074,18 @@ class NativeCoreCaptureSource(FrameSource):
         self._cb = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(_CrFrame))(on_frame)
         self._cap = self._lib.cr_capture_create()
         if not self._cap:
-            raise RuntimeError("cr_capture_create 失败")
+            raise RuntimeError("cr_capture_create failed")
         if self._lib.cr_capture_set_frame_callback(self._cap, self._cb, None) != 0:
-            raise RuntimeError("注册帧回调失败")
+            raise RuntimeError("failed to register frame callback")
         self._lib.cr_capture_set_max_fps(self._cap, self._max_fps)
         monitor = self._monitor
         hwnd = self._window_hwnd
         if hwnd:
             monitor = -1  # 由 nativecore 按窗口解析显示器
         if self._lib.cr_capture_set_target(self._cap, monitor, hwnd) != 0:
-            raise RuntimeError("捕获启动失败(显示器被占用或参数非法?)")
+            raise RuntimeError("capture start failed (monitor in use or invalid parameters?)")
         if self._lib.cr_capture_start(self._cap) != 0:
-            raise RuntimeError("捕获线程启动失败")
+            raise RuntimeError("capture thread failed to start")
         logger.info("nativecore 捕获已启动 (monitor=%d hwnd=0x%x)", self._monitor, hwnd)
 
     async def get_frame(self) -> Optional[CapturedFrame]:

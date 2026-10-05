@@ -168,7 +168,7 @@ class NativeCoreInjector(InputInjector):
     def __init__(self):
         self._lib = find_nativecore()
         if self._lib is None:
-            raise RuntimeError("nativecore.dll 未找到(可改用 WindowsInputInjector)")
+            raise RuntimeError("nativecore.dll not found (use WindowsInputInjector instead)")
         for name, argtypes in {
             "cr_inject_create": [], "cr_inject_destroy": [ctypes.c_void_p],
             "cr_inject_key": [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_int],

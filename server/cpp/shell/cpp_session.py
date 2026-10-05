@@ -75,7 +75,7 @@ class CppPeerSession:
     async def send_offer(self) -> None:
         """生成并发送 offer(应在 connected/ready 之后调用,与 aiortc 版一致)。"""
         if self._cr is None:
-            raise RuntimeError("会话未 open")
+            raise RuntimeError("session is not open")
         sdp = await asyncio.to_thread(self._cr.create_offer)
         await self._emit("offer", sdp=sdp)
         # 与 aiortc 版一致:offer 发出后启动统计上报
@@ -120,7 +120,7 @@ class CppPeerSession:
             logger.info("收到锁屏请求:已锁定桌面(等效 Win+L)")
         else:
             logger.warning("锁屏请求失败:服务端不在交互式会话")
-            self._send_toast("锁屏失败:服务端不在交互式桌面会话中。")
+            self._send_toast("Lock failed: the server is not in an interactive desktop session.")
 
     def _send_toast(self, text: str) -> bool:
         """经 events 数据通道(DLL 侧)向客户端发一条提示;返回是否已发出。"""
@@ -230,9 +230,9 @@ class CppPeerSession:
                         await self._set_secure(True)
                         available = await asyncio.to_thread(wdesktop.ping)
                         if self._send_toast(
-                                "桌面已锁定,已接入锁屏画面,可直接输入密码解锁。"
+                                "Desktop locked; lock screen feed is live. Type your password to unlock."
                                 if available else
-                                "桌面已锁定,画面已暂停;解锁后自动恢复。"):
+                                "Desktop locked; video is paused and will resume after unlock."):
                             locked = True
                             lock_live = available
                             next_live_check = now + 5.0
@@ -243,14 +243,14 @@ class CppPeerSession:
                         next_live_check = now + 5.0
                         if await asyncio.to_thread(wdesktop.ping):
                             if self._send_toast(
-                                    "锁屏画面通道已就绪,可直接输入密码解锁。"):
+                                    "Lock screen feed is ready. Type your password to unlock."):
                                 lock_live = True
                                 logger.info("锁屏画面通道恢复:已提示客户端")
                     await asyncio.sleep(1.5)
                     continue
                 if locked:
                     await self._set_secure(False)
-                    if self._send_toast("已解锁,画面恢复中。"):
+                    if self._send_toast("Unlocked; video is resuming."):
                         locked = False
                         logger.info("已退出安全桌面(解锁):恢复本机抓屏")
                 blocked = await asyncio.to_thread(
@@ -259,9 +259,9 @@ class CppPeerSession:
                     now = time.monotonic()
                     if now - self._high_il_notify_ts >= 30.0:
                         if self._send_toast(
-                                "检测到高权限窗口(如任务管理器):系统会阻止"
-                                "非管理员进程向它发送输入,点击将无响应。"
-                                "请以管理员身份运行服务端后重试。"):
+                                "A higher-privilege window (e.g. Task Manager) is focused: "
+                                "Windows blocks input from non-admin processes, so clicks "
+                                "will not respond. Run the server as administrator and retry."):
                             self._high_il_notify_ts = now
                             logger.warning(
                                 "前台为高完整性窗口,UIPI 会丢弃注入:已提示客户端")

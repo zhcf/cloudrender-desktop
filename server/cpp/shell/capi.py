@@ -4,6 +4,7 @@ DLL 内含 libwebrtc 服务端会话 + nativecore 直连抓屏/注入;信令不�
 回调 Python:内部排队,由 cr_session_poll_signal 轮询拉取。
 
 加载顺序:环境变量 CLOUDRENDER_SESSION_DLL(文件路径或目录) →
+PyInstaller 冻结模式(exe 打包资源目录,三件套随包分发) →
 仓库构建产物 server/cpp/sdk/build/{Release,Debug}/cloudrender_session.dll。
 """
 from __future__ import annotations
@@ -46,6 +47,10 @@ def _candidate_paths() -> list[Path]:
     if env:
         p = Path(env)
         out.append(p if p.suffix.lower() == ".dll" else p / DLL_NAME)
+    if getattr(sys, "frozen", False):
+        # 冻结模式:三件套随 exe 打包在资源目录根
+        meipass = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        out.append(meipass / DLL_NAME)
     for cfg in ("Release", "Debug"):
         out.append(repo / "server" / "cpp" / "sdk" / "build" / cfg / DLL_NAME)
     return out
@@ -58,7 +63,7 @@ def load_dll(path: Optional[str] = None) -> ctypes.CDLL:
         if _lib is not None:
             return _lib
         if sys.platform != "win32":
-            raise RuntimeError("cloudrender_session.dll 仅支持 Windows")
+            raise RuntimeError("cloudrender_session.dll supports Windows only")
         dll_path: Optional[Path] = None
         if path:
             p = Path(path)
@@ -71,7 +76,7 @@ def load_dll(path: Optional[str] = None) -> ctypes.CDLL:
         if dll_path is None or not dll_path.exists():
             tried = "\n  ".join(str(p) for p in _candidate_paths())
             raise FileNotFoundError(
-                f"{DLL_NAME} 未找到(可用环境变量 {DLL_ENV} 指定)。已尝试:\n  {tried}")
+                f"{DLL_NAME} not found (set env var {DLL_ENV} to override). Tried:\n  {tried}")
         # 依赖(libwebrtc.dll/nativecore.dll)与本 DLL 同目录
         _dll_dir_handles.append(os.add_dll_directory(str(dll_path.parent)))
         lib = ctypes.CDLL(str(dll_path))
@@ -148,7 +153,7 @@ class CrSession:
         with _session_lock:
             handle = lib.cr_session_create(cfg)
         if not handle:
-            raise RuntimeError("cr_session_create 失败(初始化或抓屏启动失败)")
+            raise RuntimeError("cr_session_create failed (init or capture start failed)")
         self._handle = handle
 
     # ---------------- 查询 ----------------
@@ -211,10 +216,10 @@ class CrSession:
     # ---------------- 信令 ----------------
     def create_offer(self) -> str:
         if not self._handle:
-            raise RuntimeError("会话已关闭")
+            raise RuntimeError("session is closed")
         ptr = self._lib.cr_session_create_offer(self._handle)
         if not ptr:
-            raise RuntimeError("cr_session_create_offer 失败")
+            raise RuntimeError("cr_session_create_offer failed")
         sdp = ctypes.string_at(ptr).decode("utf-8", "replace")
         self._lib.cr_session_free(ctypes.c_void_p(ptr))
         return sdp

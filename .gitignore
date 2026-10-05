@@ -19,3 +19,6 @@ server/cpp/sdk/build_sw/
 # ---- 日志与临时 ----
 *.log
 *.tmp
+
+# ---- release 打包产物(由 tools/release/build_release.ps1 生成) ----
+dist/

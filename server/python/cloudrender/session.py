@@ -301,7 +301,7 @@ class PeerSession:
             logger.info("收到锁屏请求:已锁定桌面(等效 Win+L)")
         else:
             logger.warning("锁屏请求失败:服务端不在交互式会话")
-            self._send_toast("锁屏失败:服务端不在交互式桌面会话中。")
+            self._send_toast("Lock failed: the server is not in an interactive desktop session.")
 
     async def _apply_input(self, ev) -> None:
         # 锁屏/安全桌面(密码输入界面):输入须由 SYSTEM worker 注入
@@ -582,9 +582,9 @@ class PeerSession:
                     if not locked:
                         available = await asyncio.to_thread(wdesktop.ping)
                         if self._send_toast(
-                                "桌面已锁定,已接入锁屏画面,可直接输入密码解锁。"
+                                "Desktop locked; lock screen feed is live. Type your password to unlock."
                                 if available else
-                                "桌面已锁定,画面已暂停;解锁后自动恢复。"):
+                                "Desktop locked; video is paused and will resume after unlock."):
                             locked = True
                             lock_live = available
                             next_live_check = now + 5.0
@@ -595,12 +595,12 @@ class PeerSession:
                         next_live_check = now + 5.0
                         if await asyncio.to_thread(wdesktop.ping):
                             if self._send_toast(
-                                    "锁屏画面通道已就绪,可直接输入密码解锁。"):
+                                    "Lock screen feed is ready. Type your password to unlock."):
                                 lock_live = True
                                 logger.info("锁屏画面通道恢复:已提示客户端")
                     await asyncio.sleep(1.5)
                     continue
-                if locked and self._send_toast("已解锁,画面恢复中。"):
+                if locked and self._send_toast("Unlocked; video is resuming."):
                     locked = False
                     logger.info("已退出安全桌面(解锁):已提示客户端")
                 blocked = await asyncio.to_thread(_foreground_blocks_injection)
@@ -608,9 +608,9 @@ class PeerSession:
                     now = time.monotonic()
                     if now - self._high_il_notify_ts >= 30.0:
                         if self._send_toast(
-                                "检测到高权限窗口(如任务管理器):系统会阻止"
-                                "非管理员进程向它发送输入,点击将无响应。"
-                                "请以管理员身份运行服务端后重试。"):
+                                "A higher-privilege window (e.g. Task Manager) is focused: "
+                                "Windows blocks input from non-admin processes, so clicks "
+                                "will not respond. Run the server as administrator and retry."):
                             self._high_il_notify_ts = now
                             logger.warning(
                                 "前台为高完整性窗口,UIPI 会丢弃注入:已提示客户端")

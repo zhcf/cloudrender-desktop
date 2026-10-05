@@ -1,9 +1,9 @@
-/* CloudRender 云桌面 Demo 前端逻辑:输入采集 → SDK → 服务端注入 */
+/* CloudRender Desktop 前端逻辑:输入采集 → SDK → 服务端注入 */
 /* 页面由服务端内置托管(与 /ws 同端口):信令地址默认取页面同源,免手工填写;
    ?ws= 显式覆盖(调试/远程场景),?token= 透传服务端校验 */
 /* SDK 引用带版本(与 index.html 的 app.js?v= 同步升级):无版本的模块 URL
    会被浏览器按启发式规则直接使用旧缓存(不发请求),导致页面脚本与 SDK 版本错位 */
-import CloudRenderClient from "../javascript/src/cloudrender.js?v=14";
+import CloudRenderClient from "../javascript/src/cloudrender.js?v=16";
 
 /* 从 script src 的 ?v= 参数取脚本版本,连接日志中展示(用于确认浏览器加载的代码版本) */
 const UI_VERSION = new URL(import.meta.url).searchParams.get("v") || "?";
@@ -46,13 +46,13 @@ $("btn-connect").addEventListener("click", () => {
 /* 锁屏按钮:发 lock_screen 信令,服务端 LockWorkStation 锁定远端桌面(等效 Win+L);
    锁屏后画面自动切到安全桌面,可在浏览器中直接输入密码解锁 */
 $("btn-lock").addEventListener("click", () => {
-  if (!client || !connected) { logLine("尚未连接:锁屏按钮在会话建立后可用"); return; }
+  if (!client || !connected) { logLine("Not connected: the Lock button is available after the session is established"); return; }
   if (typeof client.lockScreen !== "function") {   // 脚本版本错位(旧 SDK 被浏览器缓存)
-    logLine("前端脚本版本过期:请按 Ctrl+F5 强制刷新后重试");
+    logLine("Frontend script is outdated: press Ctrl+F5 to hard refresh, then retry");
     return;
   }
   client.lockScreen();
-  logLine("已发送锁屏指令");
+  logLine("Lock screen command sent");
 });
 
 /* 全屏按钮:浏览器级全屏(本地,不影响发往远端的按键)。捕获状态下 F11 会被
@@ -63,12 +63,12 @@ $("btn-fullscreen").addEventListener("click", () => {
     document.exitFullscreen();
   } else {
     const p = document.documentElement.requestFullscreen?.();
-    p?.catch(() => logLine("浏览器拒绝全屏请求:请再试一次"));
+    p?.catch(() => logLine("The browser declined the fullscreen request; please try again"));
   }
   focusKbd();   // 焦点交还捕获区:全屏后键盘继续直达远端
 });
 document.addEventListener("fullscreenchange", () => {
-  $("btn-fullscreen").textContent = isFullscreen() ? "退出全屏" : "全屏";
+  $("btn-fullscreen").textContent = isFullscreen() ? "Exit fullscreen" : "Fullscreen";
 });
 
 function doConnect() {
@@ -89,7 +89,7 @@ function bindClient(c) {
   c.on("statechange", (s) => {
     const dot = $("state-dot");
     dot.className = "dot " + s;
-    const texts = { idle: "未连接", connecting: "连接中…", connected: "协商中…", ready: "已连接", closed: "已断开" };
+    const texts = { idle: "Not connected", connecting: "Connecting…", connected: "Negotiating…", ready: "Connected", closed: "Disconnected" };
     $("state-text").textContent = texts[s] || s;
     if (s === "connected" || s === "ready") {
       $("btn-connect").textContent = "Disconnect";
@@ -107,7 +107,7 @@ function bindClient(c) {
     if (payload.resolution) {
       $("stat-res").textContent = `${payload.resolution.width}x${payload.resolution.height}`;
     }
-    logLine(`会话建立 source=${payload.source} codec=${payload.codec} ui=v${UI_VERSION}`);
+    logLine(`Session established source=${payload.source} codec=${payload.codec} ui=v${UI_VERSION}`);
     enableCapture();
   });
   c.on("stats", (s) => {
@@ -116,12 +116,12 @@ function bindClient(c) {
       $("stat-br").textContent = `${s.video.bitrate_kbps} kbps`;
     }
   });
-  c.on("error", (e) => logLine(`服务端错误: ${e.message} (code=${e.code})`));
-  c.on("close", (r) => logLine(`会话关闭: ${r || "unknown"}`));
+  c.on("error", (e) => logLine(`Server error: ${e.message} (code=${e.code})`));
+  c.on("close", (r) => logLine(`Session closed: ${r || "unknown"}`));
   c.on("track", () => { video.hidden = false; });
   c.on("eventframe", (bytes) => {
     for (const ev of CloudRenderClient.parseEventFrame(bytes)) {
-      if (ev.kind === 0x03) logLine(`远端提示: ${ev.text}`);
+      if (ev.kind === 0x03) logLine(`Remote notice: ${ev.text}`);
     }
   });
 }

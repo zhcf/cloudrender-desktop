@@ -1,7 +1,7 @@
 # CloudRender server restart helper: stop old instances.
 # Match by command line (do NOT kill other python processes like the static
 # file server):
-#   - server : python -m cloudrender.server ... (旧名 shell.server / desktop_app 一并兼容匹配)
+#   - server : python -m cloudrender.server ... (legacy names shell.server / desktop_app are matched too)
 #   - worker : python wdesktop_worker.py --parent <serverPID> ...
 # Requires admin (old instances run elevated / with winlogon token).
 $targets = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |

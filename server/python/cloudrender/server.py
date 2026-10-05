@@ -134,7 +134,7 @@ class CloudRenderServer:
             ws = web.WebSocketResponse()
             await ws.prepare(request)
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_UNAUTHORIZED, message="token 无效", fatal=True))
+                "error", code=protocol.ERR_UNAUTHORIZED, message="invalid token", fatal=True))
             await ws.close(code=4401)
             return ws
         ws = web.WebSocketResponse(heartbeat=30.0)
@@ -144,7 +144,7 @@ class CloudRenderServer:
         first = await asyncio.wait_for(ws.receive_json(), timeout=10.0)
         if first.get("type") != "connect":
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_BAD_PARAM, message="首条消息必须为 connect", fatal=True))
+                "error", code=protocol.ERR_BAD_PARAM, message="first message must be 'connect'", fatal=True))
             await ws.close()
             return ws
         client_info = (first.get("payload") or {}).get("client_info") or {}
@@ -161,7 +161,7 @@ class CloudRenderServer:
         await self._kick_duplicate_sessions(remote)
         if len(self._sessions) >= self.max_sessions:
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_MAX_SESSIONS, message="会话数已达上限", fatal=True))
+                "error", code=protocol.ERR_MAX_SESSIONS, message="session limit reached", fatal=True))
             await ws.close(code=4402)
             return ws
 
@@ -170,7 +170,7 @@ class CloudRenderServer:
             injector = (self._injector_factory(client_info)
                         if self._injector_factory else None)
             if injector is None:
-                raise RuntimeError("未提供 InputInjector(injector_factory 返回 None)")
+                raise RuntimeError("no InputInjector provided (injector_factory returned None)")
 
             session = PeerSession(
                 source=source,
@@ -218,7 +218,7 @@ class CloudRenderServer:
                     break
         except asyncio.TimeoutError:
             await ws.send_json(protocol.make_message(
-                "error", code=protocol.ERR_BAD_PARAM, message="connect 超时", fatal=True))
+                "error", code=protocol.ERR_BAD_PARAM, message="connect timed out", fatal=True))
         except Exception as exc:
             logger.exception("会话异常")
             try:
@@ -393,7 +393,14 @@ def main() -> None:
                                bitrate=args.bitrate * 1000)
     logger.info("CloudRender 云桌面 Demo 启动: http://%s:%d "
                 "(内置 Web UI,页面与信令同端口)", args.host, args.port)
-    server.run(source_factory, injector_factory)
+    try:
+        server.run(source_factory, injector_factory)
+    except OSError as exc:
+        if exc.errno == 10048:  # WSAEADDRINUSE
+            logger.error("端口 %d 已被占用:请先关闭正在运行的服务端实例,"
+                         "或用 --port 指定其他端口后重试", args.port)
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

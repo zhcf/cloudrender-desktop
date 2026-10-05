@@ -1,4 +1,4 @@
-"""CloudRender 服务端内置 Web UI:把 client/web/ 页面(云桌面 Demo)与
+"""CloudRender 服务端内置 Web UI:把 client/web/ 页面(CloudRender Desktop)与
 client/javascript/src(SDK) 以静态路由挂进 aiohttp 应用。
 
 页面与 /ws 信令同端口同源:浏览器打开 http://<ip>:<port>/ 即用,
@@ -11,6 +11,7 @@ shell 副本,与 cloudrender 包内版本须同步修改)。
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -20,9 +21,14 @@ logger = logging.getLogger("cloudrender.webui")
 
 # server/cpp/shell/webui.py -> parents[3] = 仓库根
 # (副本:源 server/python/cloudrender/webui.py,修改须两处同步)
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_WEB_DIR = _REPO_ROOT / "client" / "web"
-_SDK_DIR = _REPO_ROOT / "client" / "javascript" / "src"
+# PyInstaller 冻结模式:资源根 = 打包资源目录(_MEIPASS,含 add-data 的
+# client/web 与 client/javascript/src);源码模式仍按仓库相对路径定位
+if getattr(sys, "frozen", False):
+    _RES_ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+else:
+    _RES_ROOT = Path(__file__).resolve().parents[3]
+_WEB_DIR = _RES_ROOT / "client" / "web"
+_SDK_DIR = _RES_ROOT / "client" / "javascript" / "src"
 
 
 def resolve_web_dir() -> Optional[Path]:

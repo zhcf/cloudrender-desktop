@@ -1,27 +1,27 @@
-# CloudRender 集成与部署指南
+# CloudRender Integration & Deployment Guide
 
-协议规范见 [protocol.md](protocol.md)。本文覆盖三类问题:**怎么部署**(拓扑与两种服务端)、**Windows 权限边界**(UAC/UIPI)、**附赠的引擎内嵌模式**(Unity/UE/自研引擎直接供帧)。
+Protocol spec: [protocol.md](protocol.md). This document covers three areas: **how to deploy** (topology and the two servers), **Windows privilege boundaries** (UAC/UIPI), and the **bonus engine-embedding mode** (Unity/UE/custom engines supplying frames directly).
 
 ---
 
-## 1. 部署拓扑
+## 1. Deployment topologies
 
-### 1.1 本机自测(开箱即跑)
+### 1.1 Local self-test (runs out of the box)
 
-见根 README 快速开始:Python 服务端 + 浏览器 Demo,零编译。注意自测时浏览器在捕获画面内会递归显示自己,属正常现象。
+See the root README quick start: Python server + browser demo, no compilation. Note that during self-test the browser shows itself recursively inside the captured image — expected behavior.
 
-### 1.2 局域网(推荐起步)
+### 1.2 LAN (recommended starting point)
 
-- 服务端绑定 `0.0.0.0:8080`(Python `server` 默认),客户端连 `ws://<服务器IP>:8080/ws?token=xxx`;
-- 建议配置 `token`(信令握手第一关,错误码 4001),媒体段本身由 DTLS 加密;
-- 打开防火墙入站 TCP 8080,或改 `--port`。
+- The server binds `0.0.0.0:8080` (Python `server` default); clients connect to `ws://<server-IP>:8080/ws?token=xxx`;
+- Configure `token` (the first gate of the signaling handshake; error code 4001 is returned on mismatch); the media path itself is encrypted by DTLS;
+- Open inbound TCP 8080 in the firewall, or change `--port`.
 
-### 1.3 公网(必须 HTTPS/WSS + 认证)
+### 1.3 Public internet (HTTPS/WSS + authentication required)
 
-浏览器页面经 HTTPS 加载后,页面内的 `ws://` 会被当作混合内容拦截,因此:
+Once the page is loaded over HTTPS, `ws://` inside the page is blocked as mixed content, so:
 
 ```nginx
-# 反代示例:Nginx 终结 TLS,转发到本地 8080
+# reverse proxy example: Nginx terminates TLS and forwards to local 8080
 location /ws {
     proxy_pass http://127.0.0.1:8080;
     proxy_http_version 1.1;
@@ -31,64 +31,64 @@ location /ws {
 }
 ```
 
-- 必须启用 token 认证(反代也可再加一层鉴权/Basic/IP 白名单);
-- **不要把输入注入服务裸暴露公网**:注入等同本机键鼠,客户端可操作服务端机器。生产建议置于 VPN/专网内。
+- Token authentication must be enabled (the reverse proxy can add another layer: auth/Basic/IP allowlist);
+- **Never expose the injection service directly to the public internet**: injection equals local keyboard/mouse and a client can operate the server machine. For production, place it inside a VPN/private network.
 
-## 2. 两种服务端部署
+## 2. Deploying the two servers
 
-| 服务端 | 适用 | 关键命令 | 编译要求 |
+| Server | Use case | Key command | Build requirement |
 |---|---|---|---|
-| Python(aiortc) | 开箱即跑、黄金参照 | `python -m cloudrender.server --port 8080` | 仅 Python 3.9+ |
-| C++(libwebrtc) | 高性能全功能 | cmake `-DCR_BUILD_WEBRTC=ON` 构建后接入信令层 | 预编译 libwebrtc M114+ |
+| Python (aiortc) | Runs out of the box; golden reference | `python -m cloudrender.server --port 8080` | Python 3.9+ only |
+| C++ (libwebrtc) | High performance, full features | build with cmake `-DCR_BUILD_WEBRTC=ON`, then attach the signaling layer | prebuilt libwebrtc M114+ |
 
-要点:
+Key points:
 
-- **Python**:默认优先 `NativeCoreCaptureSource`(检测到 `nativecore.dll`),否则自动回退 `MssScreenSource`;`--force-fallback` 强制纯 Python 路径。injector 默认 `WindowsInputInjector`(ctypes SendInput,零编译);
-- **C++**:所有输入/捕获直连 nativecore;信令传输层(WebSocket)由上层接入,`PeerSession::Callbacks.on_signal` 把 offer/ice JSON 转发即可(见 server/cpp/sdk/README.md)。
+- **Python**: prefers `NativeCoreCaptureSource` by default (when `nativecore.dll` is detected), otherwise falls back to `MssScreenSource` automatically; `--force-fallback` forces the pure-Python path. The injector is `WindowsInputInjector` by default (ctypes SendInput, no compilation);
+- **C++**: all input/capture links nativecore directly; the signaling transport (WebSocket) is attached by the host layer — just forward offer/ice JSON from `PeerSession::Callbacks.on_signal` (see server/cpp/sdk/README.md).
 
-## 3. Windows 权限边界(UAC / UIPI)
+## 3. Windows privilege boundaries (UAC / UIPI)
 
-输入注入走 `SendInput`/`SetCursorPos`,受 **UIPI(User Interface Privilege Isolation)** 约束:
+Input injection uses `SendInput`/`SetCursorPos` and is constrained by **UIPI (User Interface Privilege Isolation)**:
 
-- 注入进程只能操作**完整性级别不高于自身**的窗口。普通权限的服务端可注入普通应用;以管理员运行服务端后,反而**无法注入**普通权限窗口(如计算器)**也无法被其测试**;
-- **UAC 提示框(UAC Secure Desktop)期间**:安全桌面与用户桌面隔离,DXGI Desktop Duplication 捕获不到、`SendInput` 注入不进去,表现为"画面冻结、键鼠失灵"。远程运维场景请:
-  - 目标机将 UAC 降为"不提示"(牺牲安全,不推荐生产);或
-  - 服务端以与用户会话相同完整性级别运行,并在桌面侧用组策略调整 UAC 行为;
-- **服务方式运行(Session 0)不可行**:Session 0 无交互桌面,DXGI 无法捕获用户桌面。请以**登录用户会话**内的计划任务/自启动方式运行服务端;
-- 注入产生的合成输入**不区分来源**:防火墙/安全软件可能拦截;游戏类反作弊环境亦可能屏蔽 `SendInput`。
+- An injecting process can only operate windows whose **integrity level is not higher than its own**. A normal-privilege server can inject into normal apps; after running the server as administrator it conversely **cannot inject into** normal-privilege windows (e.g. Calculator), **nor can it be tested against them**;
+- **During the UAC prompt (UAC Secure Desktop)**: the secure desktop is isolated from the user desktop — DXGI Desktop Duplication captures nothing and `SendInput` injects nothing, which shows up as "frozen picture, dead keyboard/mouse". For remote administration either:
+  - Set UAC to "never notify" on the target machine (weakens security; not recommended for production); or
+  - Run the server at the same integrity level as the user session and tune UAC behavior via Group Policy on the desktop side;
+- **Running as a service (Session 0) does not work**: Session 0 has no interactive desktop, so DXGI cannot capture the user desktop. Run the server from a scheduled task/startup entry inside the **logged-on user session**;
+- Synthetic input from injection is **not distinguishable by origin**: firewalls/security software may block it; game anti-cheat environments may also block `SendInput`.
 
-## 4. 引擎内嵌模式(附赠说明)
+## 4. Engine embedding mode (bonus notes)
 
-云桌面主线之外,SDK 可嵌入 Unity/UE/自研引擎:引擎**主动供帧**,输入回传由引擎自行解释。线上协议完全一致(信令 `client_info.type` 填 `"unity"`/`"ue"`),客户端零差异——只需替换服务端的 `FrameSource` / `InputInjector` 实现:
+Beyond the main cloud desktop path, the SDK can be embedded into Unity/UE/custom engines: the engine **supplies frames actively**, and input uplink is interpreted by the engine itself. The wire protocol is fully identical (set signaling `client_info.type` to `"unity"`/`"ue"`), and clients see zero difference — you only replace the server-side `FrameSource` / `InputInjector` implementation:
 
 ### Python
 
-实现 `cloudrender.capture.FrameSource`(输出 BGRA32 `CapturedFrame`)+ `cloudrender.inject.InputInjector`,传给 `CloudRenderServer.run(source_factory=..., injector_factory=...)`。参考 `MssScreenSource`/`WindowsInputInjector`。
+Implement `cloudrender.capture.FrameSource` (returning BGRA32 `CapturedFrame`) + `cloudrender.inject.InputInjector` and pass them to `CloudRenderServer.run(source_factory=..., injector_factory=...)`. See `MssScreenSource`/`WindowsInputInjector` as references.
 
 ### C++
 
-实现 `cr::source::FrameSource` / `cr::source::InputInjector`(纯虚,见 `include/cloudrender/session/cr_source.hpp`),构造 `cr::session::PeerSession` 即可。UE 下典型接法:引擎渲染线程把 backbuffer 拷贝为 BGRA 供帧、`PeerSession` 回调对接引擎内 WebSocket,Win64 直接链接 `cr_wire` + `cr_session_core`。
+Implement `cr::source::FrameSource` / `cr::source::InputInjector` (pure virtual; see `include/cloudrender/session/cr_source.hpp`) and construct `cr::session::PeerSession`. Typical UE wiring: the engine render thread copies the backbuffer to BGRA for the frame source, `PeerSession` callbacks connect to the engine's WebSocket, and Win64 links `cr_wire` + `cr_session_core` directly.
 
-### 任意语言(经 C ABI)
+### Any language (via the C ABI)
 
-`cr_capture_*` / `cr_inject_*` 导出(见 `server/cpp/nativecore/include/cloudrender/capi/cr_api.h`)为不透明句柄 + 回调 + 固定结构体 ABI,任何语言可 ctypes/FFI 复用捕获与注入;信令/媒体仍需一种 WebRTC 实现承载。
+The `cr_capture_*` / `cr_inject_*` exports (see `server/cpp/nativecore/include/cloudrender/capi/cr_api.h`) are an opaque handle + callback + fixed-struct ABI that any language can reuse through ctypes/FFI for capture and injection; signaling/media still need a WebRTC implementation to carry them.
 
-## 5. 性能调优
+## 5. Performance tuning
 
-- **首选 nativecore**:DXGI Desktop Duplication 零拷贝;mss/GDI 路径为兜底(CPU 抓屏);
-- **上限 1920x1080@30**(可配):分辨率/帧率与编码器开销成正比,局域网可调高;
-- **H264 优先**:截屏场景码率高,浏览器硬解 H264 功耗低;
-- 网络劣化→客户端发 `video_lost` 信令,服务端强制关键帧(协议 §2);
-- 输入帧客户端侧 16ms 批量 flush,服务端只管按帧解析,无需回调节流。
+- **Prefer nativecore**: DXGI Desktop Duplication is zero-copy; the mss/GDI path is a fallback (CPU screen capture);
+- **Cap of 1920x1080@30** (configurable): resolution/frame rate scale encoder cost; LAN deployments can go higher;
+- **H264 preferred**: screen content has high bitrate and browser H264 hardware decoding is power-efficient;
+- Network degradation → the client sends a `video_lost` signal and the server forces a keyframe (protocol §2);
+- Input frames are batched client-side every 16ms; the server just parses frame by frame, no callback throttling needed.
 
-## 6. 常见问题
+## 6. FAQ
 
-| 症状 | 原因与处理 |
+| Symptom | Cause and fix |
 |---|---|
-| 浏览器里画面无限递归 | 本机自测时捕获了显示页面的显示器,切到两台机器验证 |
-| 视频黑屏/花屏后不恢复 | 丢关键帧:客户端点"请求关键帧"或重连;网络丢包高时调低分辨率 |
-| 键鼠没反应 | 目标窗口完整性级别高于注入进程(UIPI,见 §3);或未点击视频画面取得焦点 |
-| `nativecore.dll 未找到` | 先编译 `server/cpp/nativecore`(CMake),或使用 mss/GDI fallback |
-| 双显示器坐标错位 | `MOVE` 归一化坐标以捕获源宽高为基准;注入用虚拟屏 SM_X/YVIRTUALSCREEN 换算,换个显示器顺序需重连 |
-| 防火墙不通 | 放行 TCP 信令端口;WebRTC 媒体端口由 ICE 协商,企业网需放行 UDP 或配置 TURN |
-| 中文输入乱码 | TEXT 事件为 UTF-8 字节,注入端已按 UTF-8 转 Unicode 键事件;IME 组合输入建议走系统输入法(v2 优化) |
+| Picture shows infinite recursion in the browser | Self-test captured the monitor displaying the page; verify with two machines |
+| Video freezes/artifacts and does not recover | Missing keyframe: click "request keyframe" on the client or reconnect; lower the resolution when packet loss is high |
+| Keyboard/mouse do nothing | The target window has a higher integrity level than the injecting process (UIPI, see §3); or the video area was not clicked to take focus |
+| `nativecore.dll not found` | Build `server/cpp/nativecore` first (CMake), or use the mss/GDI fallback |
+| Coordinates offset with dual monitors | `MOVE` normalized coordinates are relative to the capture source size; injection converts via virtual screen SM_X/YVIRTUALSCREEN — changing monitor order requires a reconnect |
+| Firewall blocks everything | Allow the TCP signaling port inbound; WebRTC media ports are negotiated by ICE — corporate networks may need UDP allowed or a TURN server configured |
+| Chinese input garbled | TEXT events carry UTF-8 bytes and the injector already converts UTF-8 to Unicode key events; for IME composition prefer the system IME (planned v2 improvement) |
