@@ -15,7 +15,7 @@ server/cpp/shell/
 ├── wdesktop.py          # secure-desktop worker client
 ├── wdesktop_worker.py   # secure-desktop worker itself
 ├── winlogon.py          # elevated worker spawn
-├── requirements.txt     # source-mode dependencies (aiohttp + numpy)
+├── requirements.txt     # source-mode deps (aiohttp + numpy); packaging deps: tools/release/requirements-build.txt
 └── _wdesktop_worker_cpp.log   # lock-screen worker runtime log (generated at run time)
 ```
 

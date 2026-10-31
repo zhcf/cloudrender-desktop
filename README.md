@@ -60,6 +60,13 @@ The release zip is produced by:
 powershell -File tools\release\build_release.ps1
 ```
 
+First run only: the script uses `.venv\Scripts\python.exe`, so create the venv and install the build dependencies (shell runtime deps plus PyInstaller):
+
+```bat
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r tools\release\requirements-build.txt
+```
+
 ### Option 2: build from source
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 C++ toolchain, CMake, Python 3.9+ for the source-mode signaling shell, and the prebuilt libwebrtc package already under `server/cpp/third_party/`.
@@ -76,6 +83,8 @@ cmake --build server\cpp\sdk\build --config Release
 ```bat
 pip install -r server\cpp\shell\requirements.txt
 ```
+
+Only the shell runtime deps live in that file; packaging the zip needs `tools\release\requirements-build.txt`, which includes them and adds PyInstaller.
 
 **Step 3: launch**:
 
@@ -216,6 +225,13 @@ cloudrender/
 powershell -File tools\release\build_release.ps1
 ```
 
+首次打包需先准备 `.venv` 并安装构建依赖（信令壳运行时依赖 + PyInstaller）：
+
+```bat
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r tools\release\requirements-build.txt
+```
+
 ### 方式二：从源码构建
 
 前置条件：Windows 10/11 64 位、Visual Studio 2022 C++ 工具链、CMake、Python 3.9+（仅源码模式的信令壳需要），以及 `server/cpp/third_party/` 下已有的 libwebrtc 预编译包。
@@ -232,6 +248,8 @@ cmake --build server\cpp\sdk\build --config Release
 ```bat
 pip install -r server\cpp\shell\requirements.txt
 ```
+
+该文件只含信令壳运行时依赖；打包 zip 请用 `tools\release\requirements-build.txt`，它在同一份依赖之上补了 PyInstaller。
 
 **第 3 步：启动**：
 

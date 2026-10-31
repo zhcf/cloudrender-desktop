@@ -3,6 +3,8 @@
 # Usage: powershell -File tools\release\build_release.ps1 [-Version 0.1.0]
 #        [-SkipCpp] [-SkipZip]   for stepwise debugging
 # Output: dist\cloudrender-desktop-cpp-v<ver>-win64.zip
+# First run: python -m venv .venv
+#            .venv\Scripts\python.exe -m pip install -r tools\release\requirements-build.txt
 param(
     [string]$Version = "0.1.0",
     [switch]$SkipCpp,
@@ -14,6 +16,16 @@ $Py = Join-Path $Root ".venv\Scripts\python.exe"
 $Rel = Join-Path $Root "tools\release"
 $Build = Join-Path $Root "dist\_build"
 $Stage = Join-Path $Root "dist\_stage"
+
+if (-not (Test-Path $Py)) {
+    throw "Python not found at $Py - create the venv first: python -m venv .venv"
+}
+if (-not $SkipCpp) {
+    & $Py -c "import PyInstaller" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller is missing - run: $Py -m pip install -r tools\release\requirements-build.txt"
+    }
+}
 
 function Invoke-PyInstaller([string]$Tag, [string[]]$PyArgs) {
     Write-Host "=== [build] $Tag ==="

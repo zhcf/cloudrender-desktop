@@ -1,0 +1,6 @@
+# Build-time dependencies for tools/release/build_release.ps1.
+# The script runs .venv\Scripts\python.exe, so install into that venv:
+#   .venv\Scripts\python.exe -m pip install -r tools\release\requirements-build.txt
+# The shell runtime deps come along because PyInstaller freezes them.
+-r ../../server/cpp/shell/requirements.txt
+pyinstaller>=6.0
