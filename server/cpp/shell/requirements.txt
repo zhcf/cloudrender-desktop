@@ -1,0 +1,4 @@
+# CloudRender C++ signaling shell dependencies (source mode only).
+# The release package bundles these; target machines do not need Python.
+aiohttp>=3.9
+numpy>=1.24

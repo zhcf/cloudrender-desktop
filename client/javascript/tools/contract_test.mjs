@@ -1,9 +1,9 @@
 /**
- * CloudRender 协议跨语言契约测试(JS ↔ Python)
+ * CloudRender 协议跨语言契约测试(JS ↔ C++)
  *
- * 金标准字节由 Python 参考实现生成:tools/golden_wire.py(输出 client/javascript/tools/golden.json)。
+ * 金标准字节由 tools/golden_wire.py 生成(输出 client/javascript/tools/golden.json)。
  * 本测试用相同的一组输入事件(8 种 kind 全覆盖)+ 构造相同的事件通道帧,验证 JS 编码与
- * Python 字节级一致,并反向解析 Python 生成的事件帧、校验 FNV-1a32 基准向量。
+ * C++ 服务端字节级一致,并反向解析金标准事件帧、校验 FNV-1a32 基准向量。
  *
  * 运行:node tools/contract_test.mjs (或 npm test)
  */
@@ -56,7 +56,7 @@ const events = [
 const frame = encodeInputFrame(events, 42);
 check("input frame bytes", hexOf(frame), golden.input_hex);
 
-/* ---------- 3. 事件帧反向解析(Python 编码 → JS 解析)---------- */
+/* ---------- 3. 事件帧反向解析(金标准编码 → JS 解析)---------- */
 const evBuf = new Uint8Array(Buffer.from(golden.events_hex, "hex"));
 const parsed = CloudRenderClient.parseEventFrame(evBuf.buffer);
 check("events count", parsed.length, 3);

@@ -1,8 +1,8 @@
 """CppPeerSession:cloudrender_session.dll 会话的异步封装。
 
-与 session.py(aiortc 版) 同一职责:建立抓屏会话、生成 offer、消费客户端
-信令、把 DLL 侧信令事件(ice/closed)经 on_signal 交上层发送。差异:
-WebRTC/注入全部在 DLL 内完成,本层只做信令桥接与轮询。
+职责:建立抓屏会话、生成 offer、消费客户端信令、把 DLL 侧信令事件
+(ice/closed)经 on_signal 交上层发送。WebRTC/注入全部在 DLL 内完成,
+本层只做信令桥接与轮询。
 
 线程模型:cr_session_create/create_offer/close 为阻塞调用,统一经
 asyncio.to_thread 执行;poll_signal 为非阻塞轻量调用,直接在事件循环内轮询。
@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Awaitable, Callable, Optional
 
-# 信令壳与全部依赖模块平铺于本目录,直接 import(自包含,无 server/python 依赖)
+# 信令壳与全部依赖模块平铺于本目录,直接 import
 import capi
 import protocol
 import secure_ops
@@ -74,12 +74,12 @@ class CppPeerSession:
         return self.resolution
 
     async def send_offer(self) -> None:
-        """生成并发送 offer(应在 connected/ready 之后调用,与 aiortc 版一致)。"""
+        """生成并发送 offer(应在 connected/ready 之后调用)。"""
         if self._cr is None:
             raise RuntimeError("session is not open")
         sdp = await asyncio.to_thread(self._cr.create_offer)
         await self._emit("offer", sdp=sdp)
-        # 与 aiortc 版一致:offer 发出后启动统计上报
+        # offer 发出后启动统计上报
         if self._stats_task is None:
             self._stats_task = asyncio.create_task(self._stats_loop())
         # 目标码率:运行期周期重申(带宽估计起步偏低,单次设置会被拖糊)
@@ -297,7 +297,7 @@ class CppPeerSession:
         """安全桌面输入:DLL 旁路转发的原始输入帧 → 经 worker 注入。
 
         锁屏期间普通进程 SendInput 到不了安全桌面,DLL 不解码注入而是把
-        原始帧经信令旁路到这里(对齐 aiortc 版 _apply_input_secure)。
+        原始帧经信令旁路到这里,直接转发给安全桌面 worker。
         为防密码泄漏,键盘/文本一律不写日志。
         """
         hex_data = str(payload.get("data") or "")
@@ -318,7 +318,7 @@ class CppPeerSession:
         """锁屏输入路由:全部经 SYSTEM worker 注入 Winlogon 桌面。
 
         坐标不做窗口裁剪(画面即锁屏裁剪区);KIND_TOUCH 在安全桌面下不
-        映射(与 aiortc 版一致,密码界面无需触摸手势)。
+        映射(密码界面无需触摸手势)。
         """
         w, h = self.resolution
         if ev.kind == protocol.KIND_KEY:
@@ -376,7 +376,7 @@ class CppPeerSession:
             logger.exception("信令轮询异常退出")
 
     async def _stats_loop(self) -> None:
-        """周期上报发送侧统计(与 aiortc 版同格式:clock_ms + video)。
+        """周期上报发送侧统计(格式:clock_ms + video)。
 
         数据源:DLL GetStats(outbound-rtp bytesSent)+ 帧泵累计帧数;按两次
         采样差分算 fps_sent/bitrate_kbps。首轮成功采样只建差分基线(连接
@@ -426,7 +426,7 @@ class CppPeerSession:
     # ------------------------------------------------------------------
     async def _bitrate_loop(self) -> None:
         """周期重申目标码率(min=max):带宽估计起步偏低,一次设置会随流启动
-        被重置(画面糊十几秒);运行期每秒重申(对齐 aiortc 版 _apply_bitrate
+        被重置(画面糊十几秒);运行期每秒重申固定码率
         对抗估计值的模式)。未连接时跳过本轮。"""
         assert self._cr is not None
         try:

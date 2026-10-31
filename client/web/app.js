@@ -40,7 +40,7 @@ video.addEventListener("resize", updateVideoResolution);
 /* 信令地址:与页面同源(服务端内置托管,页面与 ws 同端口);?ws= 覆盖调试/远程场景 */
 const _qs = new URLSearchParams(location.search);
 /* 访问口令:URL ?token= 只用于预填;连接时读取输入框,换口令后可直接重连。
-   输入框默认 123456,与两个服务端 --token 的默认值一致 */
+   输入框默认 123456,与服务端 --token 的默认值一致 */
 const tokenInput = $("input-token");
 const urlToken = (_qs.get("token") || "").trim();
 if (urlToken) tokenInput.value = urlToken;
@@ -49,7 +49,7 @@ function signalUrl() {
   const override = _qs.get("ws");
   if (override) return override;
   // file:// 直开(无宿主服务端):回退本机默认端口
-  if (location.protocol === "file:") return "ws://127.0.0.1:8080/ws";
+  if (location.protocol === "file:") return "ws://127.0.0.1:8081/ws";
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/ws`;
 }
@@ -157,7 +157,7 @@ function bindClient(c) {
     }
   });
   c.on("connected", (payload) => {
-    // 服务端能力:aiortc 版(8080)audio=false → 禁用音频开关
+    // 服务端能力:audio=false → 禁用音频开关
     const audioOk = payload?.server_caps?.audio !== false;
     $("btn-audio").disabled = !audioOk;
     $("btn-audio").title = audioOk

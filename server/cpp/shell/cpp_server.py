@@ -1,17 +1,15 @@
-"""CloudRenderServer(C++ 会话核心版):aiohttp WebSocket 信令壳。
+"""CloudRender C++ 服务端:aiohttp WebSocket 信令壳。
 
-与 server.py(aiortc 版) 协议完全一致:connect → connected → ready → offer →
-answer/ice 循环;媒体会话/抓屏/注入由 cloudrender_session.dll(C++ 会话核心)
-承担,本进程只做信令桥接与会话治理。现有的 aiortc 实现保持不动,双轨并存。
+信令流程:connect → connected → ready → offer → answer/ice 循环;媒体会话、
+抓屏、桌面音频与注入由 cloudrender_session.dll(C++ 会话核心)承担,本进程
+只做信令桥接、Web UI 托管与会话治理。
 
 用法(在 server/cpp/shell 目录运行):
 
     python cpp_server.py --port 8081
 
 依赖模块(protocol/wdesktop/winlogon/webui 与 worker 脚本
-wdesktop_worker.py)已随信令壳(cpp_server/cpp_session/capi/secure_ops)
-平铺于本目录,直接 import——完全自包含,无 server/python 依赖(修改
-任一共享逻辑须与 cloudrender 包内原件两处同步)。
+wdesktop_worker.py)全部平铺于本目录,直接 import;源码模式只需 aiohttp 与 numpy。
 """
 from __future__ import annotations
 
@@ -28,7 +26,7 @@ from typing import Optional
 from aiohttp import WSMsgType, web
 
 # 依赖模块(protocol/wdesktop/winlogon/webui)与信令壳(cpp_server/cpp_session/
-# capi/secure_ops)全部平铺于本目录,直接 import(自包含,无 server/python 依赖)
+# capi/secure_ops)全部平铺于本目录,直接 import
 from cpp_session import CppPeerSession
 import protocol
 import webui
@@ -39,7 +37,7 @@ logger = logging.getLogger("cloudrender.cpp_server")
 
 
 class CppCloudRenderServer:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080,
+    def __init__(self, host: str = "0.0.0.0", port: int = 8081,
                  token: Optional[str] = None, max_sessions: int = 1,
                  fps: int = 30, bitrate_kbps: int = 10000,
                  monitor: int = -1, window_hwnd: int = 0,
@@ -58,8 +56,7 @@ class CppCloudRenderServer:
         self.window_hwnd = window_hwnd
         self.ice_servers = ice_servers
         self.dll_path = dll_path
-        # 安全桌面(锁屏)worker:默认 45995 与 aiortc 版隔离(aiortc 版
-        # worker 用 45990 主端口;本版用 45995;单进程后不再占 +1 中继口)
+        # 安全桌面(锁屏)worker 监听端口;单进程模式不再额外占用 +1 中继口
         self.wdesktop_port = wdesktop_port
         self._wdesktop_token = ""
         self._wdesktop_spawn_ts = 0.0
@@ -117,11 +114,10 @@ class CppCloudRenderServer:
         session_id = uuid.uuid4().hex[:12]
         session: Optional[CppPeerSession] = None
         remote = request.remote or ""
-        # 同客户端重复连接治理(与 aiortc 版一致):浏览器重连风暴会产生
-        # 多条并存会话,各自抓屏互挤;新连接到来时踢除同 IP 旧会话。
-        # 注意:踢除需等完成后再做上限检查——否则 max_sessions=1 时
-        # 同 IP 重连会被旧会话占位误判为"已达上限"(aiortc 版已同步
-        # 改 1 并采用同样顺序)。
+        # 同客户端重复连接治理:浏览器重连风暴会产生多条并存会话,各自
+        # 抓屏互挤;新连接到来时踢除同 IP 旧会话。注意:踢除需等完成后再
+        # 做上限检查——否则 max_sessions=1 时同 IP 重连会被旧会话占位
+        # 误判为"已达上限"。
         await self._kick_duplicate_sessions(remote)
         if len(self._sessions) >= self.max_sessions:
             await ws.send_json(protocol.make_message(
@@ -134,8 +130,8 @@ class CppCloudRenderServer:
                 "monitor": self.monitor,
                 "fps": self.fps,
                 "bitrate_kbps": self.bitrate_kbps,
-                # 默认局域网直连(host 候选即可连通,与 aiortc 版一致);
-                # 需要 NAT 穿越时经 --ice 显式传入
+                # 默认局域网直连(host 候选即可连通);需要 NAT 穿越时
+                # 经 --ice 显式传入
                 "ice_servers": self.ice_servers or [],
             }
             if self.window_hwnd:
@@ -222,7 +218,7 @@ class CppCloudRenderServer:
         return notify
 
     async def _kick_duplicate_sessions(self, remote: str) -> None:
-        """同客户端重复连接治理(与 aiortc 版一致;等待踢除完成以便上限重判)。"""
+        """同客户端重复连接治理(等待踢除完成以便上限重判)。"""
         if not remote:
             return
         stale = [(sid, s) for sid, s in self._sessions.items()
@@ -244,7 +240,7 @@ class CppCloudRenderServer:
                 pass
 
     # ------------------------------------------------------------------
-    # 锁屏画面(安全桌面)worker 生命周期(对齐 aiortc 版 server.py)
+    # 锁屏画面(安全桌面)worker 生命周期
     # ------------------------------------------------------------------
     async def _on_startup(self, app: web.Application) -> None:
         """启动:spawn 安全桌面 worker(锁屏密码界面抓帧/输入);失败降级。"""
@@ -269,8 +265,8 @@ class CppCloudRenderServer:
     async def _spawn_wdesktop(self) -> None:
         """以 winlogon 令牌 spawn worker 并自检;记录 spawn 时间(节流用)。"""
         self._wdesktop_spawn_ts = time.monotonic()
-        # 独立日志便于验证出生桌面/输入通道;其 ".reload" 热更新标记也
-        # 与 8080 的 worker 分离,避免互相干扰
+        # 独立日志便于验证出生桌面/输入通道;其 ".reload" 热更新标记
+        # 也由本进程独占管理
         log_path = os.path.join(os.getcwd(), "_wdesktop_worker_cpp.log")
         pid = await asyncio.to_thread(
             spawn_wdesktop_worker, wdesktop.get_port(),
@@ -322,8 +318,8 @@ def main() -> None:
                         help="并发会话上限(nativecore 抓屏同显示器互斥,默认 1)")
     parser.add_argument("--fps", type=int, default=30, help="帧率上限 1..60")
     parser.add_argument("--bitrate", type=int, default=10000,
-                        help="视频目标码率 kbps(固定值,默认 10000 对齐 8080 "
-                             "运行配置;过低画面发糊;0=自适应)")
+                        help="视频目标码率 kbps(固定值,默认 10000;"
+                             "过低画面发糊;0=自适应)")
     parser.add_argument("--monitor", type=int, default=-1, help="-1=主显示器")
     parser.add_argument("--window", type=lambda v: int(v, 0), default=0,
                         help="捕获窗口句柄(如 0x1A2B3C);非 0 时按窗口捕获")
@@ -333,8 +329,7 @@ def main() -> None:
     parser.add_argument("--dll", default=None,
                         help="cloudrender_session.dll 路径(缺省自动探测构建产物)")
     parser.add_argument("--wdesktop-port", type=int, default=45995,
-                        help="安全桌面(锁屏)worker 端口(默认 45995,"
-                             "与 aiortc 版 45990 隔离)")
+                        help="安全桌面(锁屏)worker 端口(默认 45995)")
     args = parser.parse_args()
 
     # main() 在 run() 之前就要打印鉴权/启动日志,先配置一次;

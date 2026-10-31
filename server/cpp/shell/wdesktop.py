@@ -8,8 +8,6 @@ worker 由服务端以 winlogon 令牌 spawn(SYSTEM, 交互会话;见 winlogon.p
 
 传输:127.0.0.1 TCP 单连接请求-响应(约 8MB/帧,BGRA);任何失败即断开,
 下次调用自动重连。所有公开函数线程安全(锁内串行)。
-
-(cpp shell 副本:源 server/python/cloudrender/wdesktop.py,修改须两处同步)
 """
 from __future__ import annotations
 
@@ -179,7 +177,7 @@ def _grab_raw():
 def grab_secure(region) -> Optional["np.ndarray"]:
     """抓一帧安全桌面并按 region 裁剪;失败返回 None(上层推静止帧)。
 
-    region 为 mss 风格 dict(left/top/width/height);帧尺寸不小于 region 时
+    region 为截屏区域 dict(left/top/width/height);帧尺寸不小于 region 时
     裁剪。安全桌面分辨率与用户桌面不一致时(如缩放/分辨率切换中)改推
     整帧,保证锁屏/密码界面仍然可见;前端按实际帧尺寸显示。
     """

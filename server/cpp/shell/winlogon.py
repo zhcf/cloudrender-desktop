@@ -13,8 +13,7 @@
 
 失败(非管理员等)返回 None,由上层降级为"锁屏只推静止帧"。
 
-(cpp shell 副本:源 server/python/cloudrender/winlogon.py,修改须两处同步;
-本副本 spawn 同目录 wdesktop_worker.py)
+worker 模式由同目录的 wdesktop_worker.py 提供。
 """
 from __future__ import annotations
 

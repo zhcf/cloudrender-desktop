@@ -32,9 +32,7 @@
 主动退出(服务端 keeper 随后自动以新代码重新拉起,免去重启服务端)。
 
 用法(通常由服务端自动 spawn,不手工运行):
-  python wdesktop_worker.py --port 45990 --parent <server_pid> --token <hex>
-
-(cpp shell 副本:源 server/python/cloudrender/wdesktop_worker.py,修改须两处同步)
+  python wdesktop_worker.py --port 45995 --parent <server_pid> --token <hex>
 """
 from __future__ import annotations
 

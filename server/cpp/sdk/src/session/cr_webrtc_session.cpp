@@ -553,8 +553,8 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
 
   // ---------------- 目标码率 ----------------
   /// 设 min=max=指定值:带宽估计起步偏低会让前十几秒画面又糊又卡;固定后
-  /// 起步即按目标码率编码(对齐 aiortc 版 target_bitrate 固定模式)。幂等,
-  /// 运行期可由上层周期重申。仅值变化时打一条日志(避免周期重申刷屏)。
+  /// 起步即按目标码率编码(固定目标码率模式)。幂等,运行期可由上层
+  /// 周期重申。仅值变化时打一条日志(避免周期重申刷屏)。
   bool SetBitrate(int bitrate_bps) {
     if (bitrate_bps <= 0 || rtp_sender_ == nullptr || closed_.load())
       return false;
@@ -1121,8 +1121,8 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
             last = std::move(f);
             has_last = true;
           }
-          // 桌面静止(DXGI 无新帧)时重复推最后帧:发送统计恒为配置帧率,
-          // 与 8080(aiortc)行为一致;静止帧的重复编码输出极小(全 skip 宏块)。
+          // 桌面静止(DXGI 无新帧)时重复推最后帧:发送统计恒为配置帧率;
+          // 静止帧的重复编码输出极小(全 skip 宏块)。
           if (has_last) PushFrame(last);
           const auto now = std::chrono::steady_clock::now();
           if (next_tick > now) {

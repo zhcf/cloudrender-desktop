@@ -4,9 +4,8 @@ client/javascript/src(SDK) 以静态路由挂进 aiohttp 应用。
 页面与 /ws 信令同端口同源:浏览器打开 http://<ip>:<port>/ 即用,
 信令地址由页面自动取同源(免手工填写),防火墙只需放行一个端口。
 
-页面源码仅此一份(client/web/ 目录,file:// 直开也可用),由各服务端
-(8080 aiortc 版 / 8081 C++ 会话核心版)各自接入托管(本文件为 cpp
-shell 副本,与 cloudrender 包内版本须同步修改)。
+页面源码仅此一份(client/web/ 目录,file:// 直开也可用),由 C++ 服务端
+信令壳托管。
 """
 from __future__ import annotations
 
@@ -20,7 +19,6 @@ from aiohttp import web
 logger = logging.getLogger("cloudrender.webui")
 
 # server/cpp/shell/webui.py -> parents[3] = 仓库根
-# (副本:源 server/python/cloudrender/webui.py,修改须两处同步)
 # PyInstaller 冻结模式:资源根 = 打包资源目录(_MEIPASS,含 add-data 的
 # client/web 与 client/javascript/src);源码模式仍按仓库相对路径定位
 if getattr(sys, "frozen", False):

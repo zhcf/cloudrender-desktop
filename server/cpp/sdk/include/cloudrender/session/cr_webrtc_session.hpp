@@ -32,8 +32,8 @@ struct PeerSessionConfig {
   std::vector<std::string> ice_servers{"stun:stun.l.google.com:19302"};
   int fps = 30;
   bool prefer_h264 = true;  // offer 编解码顺序 H264 > VP8
-  /// 固定目标码率(bps):>0 时 min=max=该值,起步即高码率(对齐 aiortc 版
-  /// 固定码率模式,避免带宽估计起步偏低导致前十几秒画面模糊);0=自适应。
+  /// 固定目标码率(bps):>0 时 min=max=该值,起步即高码率(避免带宽估计
+  /// 起步偏低导致前十几秒画面模糊);0=自适应。
   int bitrate_bps = 0;
 };
 

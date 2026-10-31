@@ -1,9 +1,7 @@
 """CloudRender 协议编解码:信令常量、FNV-1a 键码、输入/事件二进制帧。
 
-协议规范见 docs/protocol.md。本模块是 Python 服务端与客户端共用的唯一协议实现,
+协议规范见 docs/protocol.md。本模块是服务端信令壳与客户端共用的协议实现,
 与 JS/C++ 版本保持字节级一致。
-
-(cpp shell 副本:源 server/python/cloudrender/protocol.py,修改须两处同步)
 """
 from __future__ import annotations
 

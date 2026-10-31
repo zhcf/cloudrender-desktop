@@ -5,7 +5,7 @@ rem folder and restarts the server on 8081.
 rem Admin is required: the deployed server is elevated (the lock-screen worker
 rem spawns via the winlogon token, see winlogon.py), so it can only be stopped
 rem from an elevated shell.
-rem Build first: powershell -File tools\release\build_release.ps1 -SkipPy
+rem Build first: powershell -File tools\release\build_release.ps1
 setlocal
 fltmc >nul 2>&1
 if errorlevel 1 (
@@ -20,7 +20,7 @@ set "DST="
 for /d %%d in ("%ROOT%\dist\cloudrender-desktop-cpp-v*-win64") do set "DST=%%~d\cloudrender-desktop-cpp"
 if not exist "%SRC%\cloudrender-desktop-server-cpp.exe" (
     echo [switch] no new build at "%SRC%"
-    echo [switch] run: powershell -File tools\release\build_release.ps1 -SkipPy
+    echo [switch] run: powershell -File tools\release\build_release.ps1
     pause
     exit /b 1
 )

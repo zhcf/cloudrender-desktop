@@ -1,6 +1,6 @@
-"""C++ 会话壳(cpp_server)的锁屏/安全桌面辅助工具。
+"""C++ 服务端(cpp_server)的锁屏/安全桌面辅助工具。
 
-与 aiortc 版(session.py/capture.py)功能对齐但独立实现(该版保持不动):
+提供:
 
 - lock_workstation:锁定当前交互式工作站(客户端"锁屏"按钮);
 - secure_desktop_active:安全桌面检测(锁屏/UAC;OpenInputDesktop +
@@ -19,7 +19,7 @@ import sys
 import time
 from typing import Optional
 
-# 依赖模块 wdesktop 平铺于本目录,直接 import(自包含,无 server/python 依赖)
+# 依赖模块 wdesktop 平铺于本目录,直接 import
 import wdesktop
 
 logger = logging.getLogger("cloudrender.secure_ops")

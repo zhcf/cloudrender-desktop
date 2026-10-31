@@ -1,7 +1,7 @@
 """生成协议金标准字节(供 JS/C++ 契约测试比对)。
 
-本脚本加载 cloudrender.protocol,构造一组覆盖全部 8 种 kind 的 9 个输入事件 +
-3 种事件通道消息的帧,输出稳定 hex。注意:所有 ts 均为固定常量,与 Date.now() 无关。
+本脚本加载 C++ 服务端信令壳的 protocol.py,构造一组覆盖全部 8 种 kind 的
+9 个输入事件 + 3 种事件通道消息的帧,输出稳定 hex。注意:所有 ts 均为固定常量,与 Date.now() 无关。
 
 输出两个金标准文件:
   - client/javascript/tools/golden.json(JS 契约测试读取)
@@ -13,12 +13,9 @@ import os
 import sys
 
 here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(here, "server", "python"))
-sys.modules.pop("cloudrender", None)
+protocol_path = os.path.join(here, "server", "cpp", "shell", "protocol.py")
 
-spec = importlib.util.spec_from_file_location(
-    "cloudrender.protocol",
-    os.path.join(here, "server", "python", "cloudrender", "protocol.py"))
+spec = importlib.util.spec_from_file_location("cloudrender_protocol", protocol_path)
 p = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = p
 spec.loader.exec_module(p)
@@ -37,7 +34,7 @@ events = [
 ]
 input_blob = p.encode_input_frame(events, seq=42)
 
-# Python 自校验往返
+# 参考实现自校验往返
 seq, out = p.decode_input_frame(input_blob)
 assert seq == 42 and len(out) == len(events)
 

@@ -17,9 +17,9 @@ URN: urn:cloudrender:protocol:v1
 
 ## 1. Signaling protocol (WebSocket + JSON)
 
-Example signaling channel address: `ws://host:8080/ws?token=xxx&width=1920&height=1080`
+Example signaling channel address: `ws://host:8081/ws?token=xxx&width=1920&height=1080`
 
-The server may require authentication; `token` is the credential and both servers default to `123456` (an empty string disables the check). Signaling is only used to establish the session and exchange SDP/ICE; once the session is up, both media and input run over WebRTC.
+The server may require authentication; `token` is the credential and the server defaults to `123456` (an empty string disables the check). Signaling is only used to establish the session and exchange SDP/ICE; once the session is up, both media and input run over WebRTC.
 
 ### 1.1 Connection flow
 
@@ -92,7 +92,7 @@ Each message is one JSON object and must carry `type`:
 
 - **Direction**: unidirectional — the server only sends (recvonly → sendonly).
 - **Video track** (fixed mid semantics): codec priority `H264 > VP8 > AV1`, which must be listed in the offer m-lines (H264 enables GPU hardware encode/decode for cloud desktop scenarios). Default 30fps.
-- **Audio track**: optional, codec `opus/48000/2`. Off by default. Both server editions keep the track present in the offer (16-bit PCM stereo captured from the default render device via WASAPI loopback) and start muted; the `audio` signaling message starts/stops capture without renegotiation.
+- **Audio track**: optional, codec `opus/48000/2`. Off by default. The server keeps the track present in the offer (16-bit PCM stereo captured from the default render device via WASAPI loopback) and starts muted; the `audio` signaling message starts/stops capture without renegotiation.
 - **SDP rule**: the client answer may only pick codecs and resolutions already listed in the offer; it must not add new ones.
 
 ### 2.2 DataChannel list

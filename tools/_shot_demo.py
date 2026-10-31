@@ -18,7 +18,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 EXE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 PORT = 9223
-URL = "http://localhost:8080/"
+URL = "http://localhost:8081/"
 ROOT = r"c:\zhcf\pythonproject\cloudrender"
 OUT = os.path.join(ROOT, "docs", "images", "usage-demo.png")
 # 标准 Win11 桌面素材:截图时覆盖视频画面区域(避免截到真实桌面);参数传 none 可禁用

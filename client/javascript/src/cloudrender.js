@@ -1,13 +1,13 @@
 /**
  * CloudRender JavaScript 客户端 SDK
  *
- * 与 Python/C++ 服务端 SDK 共享同一协议(docs/protocol.md):
+ * 与 C++ 服务端共享同一协议(docs/protocol.md):
  *  - 信令:WebSocket + JSON(connect/connected/offer/answer/ice/ready/stats/error/close)
  *  - 输入:DataChannel "input" 二进制帧,magic "CRIN",小端
  *  - 事件:DataChannel "events" 二进制帧,托管给 onEvent 回调(通过 BinaryMessage 事件透出)
  *
  * 用法:
- *   const client = new CloudRenderClient("ws://host:8080/ws", { video: document.querySelector("video") });
+ *   const client = new CloudRenderClient("ws://host:8081/ws", { video: document.querySelector("video") });
  *   client.on("ready", () => client.keyDown("KeyA"));
  *   client.connect();
  */

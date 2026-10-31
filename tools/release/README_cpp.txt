@@ -4,7 +4,7 @@ CloudRender Desktop - C++ Server (v0.1.0)
 This package is a standalone build of the C++ session-core server.
 No Python installation is required on the target machine.
 Sessions/capture/injection are handled by cloudrender_session.dll (a libwebrtc
-session + nativecore); Python only acts as the signaling shell.
+session + nativecore); the signaling shell is bundled into the executable.
 
 [Launch]
   Double-click start_server.cmd (it will request administrator privileges
