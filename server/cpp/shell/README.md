@@ -45,11 +45,16 @@ DLL load probing order (see capi.py):
 cd server/cpp/shell
 python cpp_server.py --port 8081
 # open http://localhost:8081/ in a browser (built-in Web UI, same page as the 8080 edition)
+# the page Token box is pre-filled with 123456, the same default as --token
 ```
 
 Admin one-click script `tools\_restart_cpp_server_admin.cmd`: self-elevates → stops any old 8081 instance →
 applies staged DLLs (build_sw→build) → starts with `--port 8081 --fps 60 --bitrate 10000`;
 console output is redirected to `tools/_cpp_server_console.log`.
+
+When 8081 runs the frozen release (`dist\cloudrender-desktop-cpp-v*-win64`), use `tools\_apply_cpp_release_admin.cmd`
+instead: it self-elevates, stops the packaged server, copies `dist\_build\cpp` over the deployed folder and
+restarts it (build first with `powershell -File tools\release\build_release.ps1 -SkipPy`).
 
 > Administrator rights are for the lock-screen worker (spawning via the winlogon token needs SeDebugPrivilege);
 > it also starts without them, but the lock screen degrades to a still frame.
@@ -60,7 +65,7 @@ console output is redirected to `tools/_cpp_server_console.log`.
 |---|---|---|
 | `--host` | 0.0.0.0 | listen address |
 | `--port` | 8080 | signaling port (the real deployment uses 8081 to distinguish it from the aiortc edition) |
-| `--token` | none | connection auth token (no check by default) |
+| `--token` | 123456 | connection auth token (`ws?token=...`); an empty string disables the check |
 | `--max-sessions` | 1 | concurrent session limit (nativecore capture cannot share one monitor) |
 | `--fps` | 30 | frame rate cap, 1..60 |
 | `--bitrate` | 10000 | video target bitrate kbps (fixed; 0 = adaptive) |

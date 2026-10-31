@@ -112,6 +112,15 @@ CR_SESSION_API int CR_SESSION_CALL cr_session_set_bitrate(cr_session* s,
                                                           int bitrate_bps);
 
 /*
+ * 开关桌面音频(系统混音)传输:on=1 启动 WASAPI loopback 采集默认播放
+ * 设备混音并经音频轨发送,on=0 停止采集并发静音。音频轨常驻 offer,
+ * 切换不触发 SDP 重协商;任意线程可调,幂等。音频轨不可用/会话已关闭
+ * 返回 CR_SESSION_E_FAIL。
+ */
+CR_SESSION_API int CR_SESSION_CALL cr_session_set_audio_enabled(cr_session* s,
+                                                                int on);
+
+/*
  * 安全桌面(锁屏)模式:on=1 后帧泵改推 cr_session_push_secure_frame 注入的帧
  * (普通权限进程锁屏期间无法抓屏),input 通道收到的输入帧不再本地注入,改为
  * 经 cr_session_poll_signal 的 {"type":"secure_input","payload":{"data":"<hex>"}}

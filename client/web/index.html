@@ -4,14 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CloudRender Desktop</title>
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <header id="toolbar">
     <div class="brand">CloudRender <span>Desktop</span></div>
     <div class="controls">
       <!-- 页面由服务端内置托管(与 /ws 同端口),信令地址自动取同源;?ws= 可覆盖 -->
+      <!-- 访问口令:默认值与两个服务端 --token 的默认值一致;服务端换口令后在此同步修改 -->
+      <label class="token-field" title="Server access token (default: 123456)">
+        Token
+        <input id="input-token" type="text" value="123456" autocomplete="off"
+               autocapitalize="off" spellcheck="false" aria-label="Access token">
+      </label>
       <button id="btn-connect">Connect</button>
+      <button id="btn-audio" title="Transmit the remote desktop's system audio (WASAPI loopback); toggled without renegotiation">Audio: Off</button>
       <button id="btn-lock" title="Lock the remote desktop (equivalent to Ctrl+Alt+Del → Lock / Win+L)">Lock</button>
       <button id="btn-fullscreen" title="Browser fullscreen (local; equivalent to F11, Esc to exit)">Fullscreen</button>
       <label class="chk"><input type="checkbox" id="opt-pointerlock"> Pointer lock (relative mode; turn off to type)</label>
@@ -27,6 +34,8 @@
 
   <main id="stage">
     <video id="screen" autoplay playsinline muted></video>
+    <!-- 远端桌面音频(默认静音;工具栏 Audio 开关打开后播放) -->
+    <audio id="remote-audio" autoplay></audio>
     <!-- 隐藏键盘捕获区:点击画面后聚焦,软键盘弹起,字符/删除/回车直接发远端 -->
     <textarea id="kbd-capture" autocapitalize="off" autocomplete="off"
               autocorrect="off" spellcheck="false"></textarea>
@@ -42,6 +51,6 @@
 
   <footer id="log"></footer>
 
-  <script type="module" src="app.js?v=16"></script>
+  <script type="module" src="app.js?v=20"></script>
 </body>
 </html>

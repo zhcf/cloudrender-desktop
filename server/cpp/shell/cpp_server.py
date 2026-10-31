@@ -158,7 +158,8 @@ class CppCloudRenderServer:
                 session_id=session_id,
                 server_caps={
                     "codecs": ["h264", "vp8"],
-                    "audio": False,
+                    # C++ 会话核心带系统混音音频轨(默认静音,客户端开关控制)
+                    "audio": True,
                     "max_sessions": self.max_sessions,
                 }))
             # 就绪信息:分辨率以实际捕获为准
@@ -315,7 +316,8 @@ def main() -> None:
         description="CloudRender 信令壳(媒体核心:cloudrender_session.dll)")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8081)
-    parser.add_argument("--token", default=None, help="连接鉴权 token(缺省不校验)")
+    parser.add_argument("--token", default="123456",
+                        help="连接鉴权 token(默认 123456;传空字符串关闭校验)")
     parser.add_argument("--max-sessions", type=int, default=1,
                         help="并发会话上限(nativecore 抓屏同显示器互斥,默认 1)")
     parser.add_argument("--fps", type=int, default=30, help="帧率上限 1..60")
@@ -335,12 +337,18 @@ def main() -> None:
                              "与 aiortc 版 45990 隔离)")
     args = parser.parse_args()
 
+    # main() 在 run() 之前就要打印鉴权/启动日志,先配置一次;
+    # run() 内的 basicConfig 此时是空操作。
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
+
     server = CppCloudRenderServer(
         host=args.host, port=args.port, token=args.token,
         max_sessions=args.max_sessions, fps=args.fps,
         bitrate_kbps=args.bitrate, monitor=args.monitor,
         window_hwnd=args.window, ice_servers=args.ice, dll_path=args.dll,
         wdesktop_port=args.wdesktop_port)
+    logger.info("连接鉴权: %s", "已启用" if args.token else "未启用")
     logger.info("CloudRender C++ 会话核心信令壳启动: http://%s:%d "
                 "(内置 Web UI,页面与信令同端口)", args.host, args.port)
     try:

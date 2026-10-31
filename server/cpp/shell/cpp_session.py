@@ -52,6 +52,7 @@ class CppPeerSession:
         self._guard_task: Optional[asyncio.Task] = None       # 锁屏/UIPI 守护
         self._secure_frame_task: Optional[asyncio.Task] = None  # 锁屏帧桥
         self._secure_on = False        # 当前是否处于安全桌面(锁屏)模式
+        self._audio_enabled = False    # 桌面音频(系统混音)传输开关状态
         self._high_il_notify_ts = 0.0  # 高完整性窗口提示节流(monotonic 秒)
         self._closed = False
         self._seq_next = itertools.count(1).__next__
@@ -105,6 +106,8 @@ class CppPeerSession:
                 logger.warning("handle_signal(%s) 返回 %d", mtype, rc)
         elif mtype == "lock_screen":
             await self._lock_screen()
+        elif mtype == "audio":
+            await self._set_audio(bool(payload.get("enabled")))
         elif mtype == "disconnect":
             await self.close()
         # 其余(stats/ping/video_lost)暂不支持,DLL 侧静默忽略
@@ -121,6 +124,23 @@ class CppPeerSession:
         else:
             logger.warning("锁屏请求失败:服务端不在交互式会话")
             self._send_toast("Lock failed: the server is not in an interactive desktop session.")
+
+    async def _set_audio(self, on: bool) -> None:
+        """开关桌面音频(系统混音)传输并回执实际状态。
+
+        音频轨在 offer 中常驻(客户端总能收到 audio track),本开关只控制
+        服务端是否采集系统混音并发送:开启后启动 WASAPI loopback 采集,
+        关闭后停采并静音;切换不触发 SDP 重协商。
+        """
+        cr = self._cr
+        if cr is None or self._closed:
+            return
+        ok = await asyncio.to_thread(cr.set_audio_enabled, on)
+        if ok:
+            self._audio_enabled = on
+        logger.info("音频传输: 请求=%s 实际=%s%s", on, self._audio_enabled,
+                    "" if ok else " (失败: 音频轨不可用)")
+        await self._emit("audio_state", enabled=self._audio_enabled, ok=bool(ok))
 
     def _send_toast(self, text: str) -> bool:
         """经 events 数据通道(DLL 侧)向客户端发一条提示;返回是否已发出。"""

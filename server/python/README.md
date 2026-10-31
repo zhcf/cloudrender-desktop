@@ -14,6 +14,7 @@ pip install -r requirements.txt     # aiohttp + aiortc + numpy + mss
 cd server/python
 python -m cloudrender.server --port 8080
 # open http://localhost:8080/ in a browser (built-in Web UI; the page auto-connects to the same-port signaling)
+# the page Token box is pre-filled with 123456, the same default as --token
 ```
 
 > The entry point must run with `-m` (the package uses relative imports throughout); `python cloudrender\server.py` does not work.
@@ -31,7 +32,7 @@ check whether the local Windows Firewall allows inbound 8080.
 | `--monitor` | 0 | 0=entire desktop (full virtual screen), 1=primary monitor, 2..=other monitors |
 | `--fps` | 30 | frame rate cap |
 | `--bitrate` | 6000 | video target bitrate kbps; too low looks blurry — LAN can go 8000-12000 |
-| `--token` | none | optional auth (`ws?token=...`) |
+| `--token` | 123456 | access token (`ws?token=...`); an empty string disables the check |
 | `--max-sessions` | 1 | concurrent session limit (nativecore capture cannot share one monitor) |
 | `--capture` | auto | auto=DXGI zero-copy preferred for single monitors, fall back to mss on failure/multi-monitor; mss=force GDI software capture; dxgi=force DXGI |
 | `--force-fallback` | - | equivalent to `--capture mss` (no nativecore/DXGI) |
@@ -50,6 +51,7 @@ cloudrender/
 ├── inject.py           # InputInjector abstraction; WindowsInputInjector (SendInput) / NativeCoreInjector
 ├── session.py          # PeerSession: aiortc media session (offer/answer/ice, data channels)
 ├── streamer.py         # CaptureVideoTrack: frame pump (latest frame -> encode & push)
+├── audio.py            # desktop system-audio (WASAPI loopback) capture + AudioStreamTrack
 ├── webui.py            # built-in Web UI: mounts client/web and client/javascript/src into aiohttp
 ├── wdesktop.py         # local client of the secure-desktop (lock screen video/input) worker
 ├── wdesktop_worker.py  # secure-desktop worker itself (spawned with the winlogon token, SYSTEM)
@@ -75,7 +77,8 @@ cloudrender/
 ```python
 from cloudrender import CloudRenderServer, MssScreenSource, WindowsInputInjector
 
-server = CloudRenderServer(port=8080, token=None, max_sessions=1, bitrate=8_000_000)
+server = CloudRenderServer(port=8080, token="123456", max_sessions=1, bitrate=8_000_000)
+# token=None disables authentication (not recommended outside an isolated test)
 server.run(
     source_factory=lambda info: MssScreenSource(monitor=0, max_fps=30),
     injector_factory=lambda info: WindowsInputInjector(),
@@ -93,5 +96,9 @@ python -m cloudrender.mini_client ws://127.0.0.1:8080/ws
 
 ## Lock screen (secure desktop)
 
-While the desktop is locked, ordinary processes cannot capture or inject; the server spawns a SYSTEM worker (`wdesktop_worker.py`) with the winlogon token to take over, and the browser can type the lock-screen password directly.
+While the desktop is locked, ordinary processes cannot capture or inject; the server spawns a SYSTEM worker (`wdesktop_worker.py`) with the winlogon token to take over, and the browser can type the lock-screen password directly. Right after locking, the server injects one harmless `Shift` into the secure desktop so the password box appears immediately (the first key press is otherwise consumed by waking the lock-screen wallpaper).
 **The server must run as administrator** (SeDebugPrivilege); otherwise it degrades to a still lock-screen frame. Worker log: `server/python/_wdesktop_worker.log`.
+
+## Desktop audio
+
+The `Audio` button (and the `audio` signaling message) streams the system mix of the default render device to the browser. Capture uses WASAPI loopback through `comtypes` (no extra install on Windows) in `audio.py`: 48 kHz stereo 16-bit, 20 ms frames, device re-acquisition on failure. The audio track is always present in the offer, so toggling never renegotiates; `audio_state{enabled, ok}` reports the applied state.

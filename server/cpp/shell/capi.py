@@ -110,6 +110,8 @@ def _bind(lib: ctypes.CDLL) -> None:
     lib.cr_session_get_stats.argtypes = [ctypes.c_void_p]
     lib.cr_session_set_bitrate.restype = ctypes.c_int
     lib.cr_session_set_bitrate.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.cr_session_set_audio_enabled.restype = ctypes.c_int
+    lib.cr_session_set_audio_enabled.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.cr_session_set_secure_mode.restype = ctypes.c_int
     lib.cr_session_set_secure_mode.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.cr_session_push_secure_frame.restype = ctypes.c_int
@@ -188,6 +190,14 @@ class CrSession:
             return False
         return self._lib.cr_session_set_bitrate(
             self._handle, bitrate_kbps * 1000) == OK
+
+    def set_audio_enabled(self, on: bool) -> bool:
+        """开关桌面音频(系统混音 loopback)传输。音频轨常驻 offer,
+        切换不重协商;成功后服务端开始/停止采集并回执实际状态。"""
+        if not self._handle:
+            return False
+        return self._lib.cr_session_set_audio_enabled(
+            self._handle, 1 if on else 0) == OK
 
     def set_secure_mode(self, on: bool) -> bool:
         """切换安全桌面(锁屏)模式:帧泵改推 push_secure_frame 注入帧,

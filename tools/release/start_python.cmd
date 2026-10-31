@@ -10,10 +10,10 @@ if errorlevel 1 (
 )
 title CloudRender Desktop Python Server 8080 (admin)
 cd /d "%~dp0"
-echo Starting CloudRender Python server on port 8080 (fps=60 bitrate=10000)...
+echo Starting CloudRender Python server on port 8080 (fps=60 bitrate=10000 token=123456)...
 echo Open http://localhost:8080/ in your browser.
 echo.
-"%~dp0cloudrender-desktop-server-python.exe" --port 8080 --fps 60 --bitrate 10000
+"%~dp0cloudrender-desktop-server-python.exe" --port 8080 --fps 60 --bitrate 10000 --token 123456
 echo.
 echo [server] exited (press any key to close this window).
 pause

@@ -29,6 +29,7 @@ set(CR_NATIVECORE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../nativecore"
 if(EXISTS "${CR_NATIVECORE_ROOT}/include/cloudrender/capi/cr_api.h")
   add_library(cr_session_core STATIC
       src/session/cr_webrtc_session.cpp
+      src/session/cr_audio_capture.cpp
       src/session/nativecore_source.cpp)
   target_include_directories(cr_session_core PUBLIC include)
   target_include_directories(cr_session_core PRIVATE "${CR_NATIVECORE_ROOT}/include")
@@ -75,7 +76,7 @@ if(CR_BUILD_WEBRTC)
   target_link_libraries(cr_session_core PUBLIC "${CR_WEBRTC_ROOT}/lib/libwebrtc.dll.lib")
   if(WIN32)
     target_link_libraries(cr_session_core PUBLIC
-        winmm ws2_32 secur32 crypt32 iphlpapi d3d11 dxgi)
+        winmm ole32 ws2_32 secur32 crypt32 iphlpapi d3d11 dxgi)
   endif()
 
   # 运行时 DLL:复制到构建输出根目录,供上层应用/测试使用(测试目录另有局部复制)

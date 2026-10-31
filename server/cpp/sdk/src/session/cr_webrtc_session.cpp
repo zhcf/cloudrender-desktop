@@ -43,6 +43,8 @@
 #include <vector>
 
 #include "libwebrtc.h"
+#include "rtc_audio_source.h"
+#include "rtc_audio_track.h"
 #include "rtc_data_channel.h"
 #include "rtc_ice_candidate.h"
 #include "rtc_media_stream.h"
@@ -54,6 +56,7 @@
 #include "rtc_video_source.h"
 #include "rtc_video_track.h"
 
+#include "cloudrender/session/cr_audio_capture.hpp"
 #include "cloudrender/wire/cr_wire.hpp"
 
 namespace cr::session {
@@ -398,6 +401,11 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
   libwebrtc::scoped_refptr<libwebrtc::RTCVideoSource> video_source_;
   libwebrtc::scoped_refptr<libwebrtc::RTCVideoTrack> video_track_;
   libwebrtc::scoped_refptr<libwebrtc::RTCRtpSender> rtp_sender_;
+  // 桌面音频(系统混音 loopback):音频轨常驻 offer,开关只控制采集与静音
+  libwebrtc::scoped_refptr<libwebrtc::RTCAudioSource> audio_source_;
+  libwebrtc::scoped_refptr<libwebrtc::RTCAudioTrack> audio_track_;
+  cr::audio::LoopbackCapture audio_capture_;
+  std::atomic<bool> audio_enabled_{false};
   libwebrtc::scoped_refptr<libwebrtc::RTCDataChannel> dc_input_;
   libwebrtc::scoped_refptr<libwebrtc::RTCDataChannel> dc_events_;
   libwebrtc::scoped_refptr<libwebrtc::RTCMediaConstraints> offer_constraints_;
@@ -497,6 +505,30 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
     }
     if (rtp_sender_ == nullptr) return false;
 
+    // 桌面音频轨:自定义音频源(WASAPI loopback 采集系统混音)。轨常驻
+    // offer,默认静音;客户端开关只切采集/静音,不触发 SDP 重协商。
+    audio_source_ = factory_->CreateAudioSource(
+        "cloudrender_audio", libwebrtc::RTCAudioSource::SourceType::kCustom,
+        libwebrtc::RTCAudioOptions());
+    if (audio_source_ != nullptr) {
+      audio_track_ =
+          factory_->CreateAudioTrack(audio_source_, "cloudrender_audio");
+    }
+    if (audio_track_ != nullptr) {
+      std::vector<std::string> audio_ids_std{"cloudrender"};
+      libwebrtc::vector<libwebrtc::string> audio_ids(audio_ids_std);
+      if (pc_->AddTrack(audio_track_, audio_ids) == nullptr) {
+        audio_track_ = nullptr;
+        audio_source_ = nullptr;
+      } else {
+        audio_track_->set_enabled(false);  // 默认关闭:等客户端音频开关信令
+      }
+    }
+    if (audio_track_ == nullptr) {
+      std::fprintf(stderr,
+                   "[cloudrender] audio track unavailable (video only)\n");
+    }
+
     // 服务端创建两条数据通道:input(C→S 输入)、events(S→C 事件)
     libwebrtc::RTCDataChannelInit dc_init;  // ordered 默认 true
     dc_input_ = pc_->CreateDataChannel("input", &dc_init);
@@ -542,6 +574,38 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
     }
     applied_bitrate_bps_ = bitrate_bps;
     return ok;
+  }
+
+  // ---------------- 桌面音频(系统混音 loopback) ----------------
+  /// 开关音频传输:开=启动 WASAPI loopback 采集并解锁音频轨,关=停采并
+  /// 静音。音频轨已在 Init 中常驻 offer,切换不触发重协商。幂等,任意线程可调。
+  bool SetAudioEnabled(bool on) {
+    if (closed_.load() || audio_track_ == nullptr ||
+        audio_source_ == nullptr) {
+      return false;
+    }
+    if (audio_enabled_.exchange(on) == on) return true;
+    if (on) {
+      const bool started = audio_capture_.Start(
+          [this](const int16_t* pcm, size_t frames, int sample_rate,
+                 size_t channels) {
+            if (!audio_enabled_.load() || audio_source_ == nullptr) return;
+            audio_source_->CaptureFrame(pcm, 16, sample_rate, channels,
+                                        frames);
+          });
+      if (!started) {
+        audio_enabled_ = false;
+        return false;
+      }
+      audio_track_->set_enabled(true);
+    } else {
+      // 先停采集(join 采集线程)再静音轨:回调不再引用音频源
+      audio_capture_.Stop();
+      audio_track_->set_enabled(false);
+    }
+    std::fprintf(stderr, "[cloudrender] audio %s\n",
+                 on ? "on (system loopback)" : "off");
+    return true;
   }
 
   // ---------------- offer(同步等待内置回调) ----------------
@@ -1090,6 +1154,9 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
         sender_.join();
       }
     }
+    // 先停音频采集(join):回调持有音频源引用,必须先于释放
+    audio_capture_.Stop();
+    audio_enabled_ = false;
     if (dc_input_ != nullptr) dc_input_->UnregisterObserver();
     if (pc_ != nullptr) {
       pc_->DeRegisterRTCPeerConnectionObserver();
@@ -1100,6 +1167,8 @@ struct PeerSession::Impl final : public libwebrtc::RTCPeerConnectionObserver,
     dc_input_ = nullptr;
     dc_events_ = nullptr;
     rtp_sender_ = nullptr;
+    audio_track_ = nullptr;
+    audio_source_ = nullptr;
     video_track_ = nullptr;
     video_source_ = nullptr;
     offer_constraints_ = nullptr;
@@ -1146,6 +1215,10 @@ bool PeerSession::SetBitrate(int bitrate_bps) {
   return impl_ != nullptr && impl_->SetBitrate(bitrate_bps);
 }
 
+bool PeerSession::SetAudioEnabled(bool on) {
+  return impl_ != nullptr && impl_->SetAudioEnabled(on);
+}
+
 void PeerSession::SetSecureMode(bool on) {
   if (impl_ != nullptr) impl_->SetSecureMode(on);
 }
@@ -1181,6 +1254,7 @@ bool PeerSession::valid() const { return false; }
 void PeerSession::StartStreaming() {}
 bool PeerSession::QueryStats(uint64_t*, uint64_t*) { return false; }
 bool PeerSession::SetBitrate(int) { return false; }
+bool PeerSession::SetAudioEnabled(bool) { return false; }
 void PeerSession::SetSecureMode(bool) {}
 void PeerSession::PushSecureFrame(const uint8_t*, int, int, int, uint64_t) {}
 bool PeerSession::SendToast(const std::string&) { return false; }

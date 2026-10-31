@@ -291,6 +291,12 @@ int CR_SESSION_CALL cr_session_set_bitrate(cr_session* s, int bitrate_bps) {
                                              : CR_SESSION_E_FAIL;
 }
 
+int CR_SESSION_CALL cr_session_set_audio_enabled(cr_session* s, int on) {
+  if (s == nullptr || s->session == nullptr) return CR_SESSION_E_STATE;
+  return s->session->SetAudioEnabled(on != 0) ? CR_SESSION_OK
+                                              : CR_SESSION_E_FAIL;
+}
+
 int CR_SESSION_CALL cr_session_set_secure_mode(cr_session* s, int on) {
   if (s == nullptr || s->session == nullptr) return CR_SESSION_E_STATE;
   s->session->SetSecureMode(on != 0);

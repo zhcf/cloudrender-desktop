@@ -13,7 +13,7 @@ See the root README quick start: Python server + browser demo, no compilation. N
 ### 1.2 LAN (recommended starting point)
 
 - The server binds `0.0.0.0:8080` (Python `server` default); clients connect to `ws://<server-IP>:8080/ws?token=xxx`;
-- Configure `token` (the first gate of the signaling handshake; error code 4001 is returned on mismatch); the media path itself is encrypted by DTLS;
+- Configure `token` (the first gate of the signaling handshake; both servers default to `123456`, and an empty string disables the check; error code 4001 is returned on mismatch); the media path itself is encrypted by DTLS;
 - Open inbound TCP 8080 in the firewall, or change `--port`.
 
 ### 1.3 Public internet (HTTPS/WSS + authentication required)
@@ -31,7 +31,7 @@ location /ws {
 }
 ```
 
-- Token authentication must be enabled (the reverse proxy can add another layer: auth/Basic/IP allowlist);
+- Token authentication must be enabled with a non-default value (the reverse proxy can add another layer: auth/Basic/IP allowlist);
 - **Never expose the injection service directly to the public internet**: injection equals local keyboard/mouse and a client can operate the server machine. For production, place it inside a VPN/private network.
 
 ## 2. Deploying the two servers

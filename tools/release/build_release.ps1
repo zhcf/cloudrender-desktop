@@ -28,6 +28,7 @@ if (-not $SkipPy) {
         "--distpath", (Join-Path $Build "py"), "--workpath", (Join-Path $Build "py_work"),
         "--specpath", $Build, "--paths", (Join-Path $Root "server\python"),
         "--collect-all", "bettercam",
+        "--collect-all", "comtypes",
         "--add-binary", "$Root\server\cpp\nativecore\build\Release\nativecore.dll;cloudrender",
         "--add-binary", "$Root\server\cpp\nativecore\build\Release\nativecore.dll;.",
         "--add-data", "$Root\client\web;client/web",
@@ -64,11 +65,16 @@ if (-not $SkipZip) {
     Copy-Item -Force (Join-Path $Rel "README_python.txt") (Join-Path $pyDir "README.txt")
     Copy-Item -Force (Join-Path $Rel "start_cpp.cmd") (Join-Path $cppDir "start_server.cmd")
     Copy-Item -Force (Join-Path $Rel "README_cpp.txt") (Join-Path $cppDir "README.txt")
+    # Chinese user guide sits next to the program folder at the top of the zip.
+    # The name is built from code points so this script stays ASCII-only:
+    # PowerShell 5.1 mis-decodes BOM-less UTF-8 literals as ANSI.
+    $guideName = ([char]0x4F7F) + ([char]0x7528) + ([char]0x8BF4) + ([char]0x660E) + ".txt"
+    Copy-Item -Force (Join-Path $Rel "GUIDE_cpp_zh.txt") (Join-Path $Stage $guideName)
     $zipPy = Join-Path $Root "dist\cloudrender-desktop-python-v$Version-win64.zip"
     $zipCpp = Join-Path $Root "dist\cloudrender-desktop-cpp-v$Version-win64.zip"
     Remove-Item $zipPy, $zipCpp -Force -ErrorAction SilentlyContinue
     tar -a -c -f $zipPy -C $Stage "cloudrender-desktop-python"
-    tar -a -c -f $zipCpp -C $Stage "cloudrender-desktop-cpp"
+    tar -a -c -f $zipCpp -C $Stage $guideName "cloudrender-desktop-cpp"
     foreach ($z in @($zipPy, $zipCpp)) {
         $mb = [math]::Round((Get-Item $z).Length / 1MB, 1)
         Write-Host ("[build] {0}  ({1} MB)" -f $z, $mb)

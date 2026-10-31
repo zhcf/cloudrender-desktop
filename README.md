@@ -101,15 +101,17 @@ python cpp_server.py --port 8081
 
 - **Open the page**: Python edition `http://localhost:8080/`, C++ edition `http://localhost:8081/`; click **Connect** to establish the session, then click the video area to control this machine with keyboard/mouse;
 - **LAN**: on another computer, open `http://<machine-IP>:<port>` (choose "Allow" in the Windows Firewall prompt on first launch);
+- **Token**: the toolbar has a Token box pre-filled with `123456`, matching the `--token` default of both servers (`--token ""` disables the check). Change the default before real use and enter the same value before **Connect**; a wrong token returns code 4001, shows `Token rejected`, and stops auto-reconnect;
 - **Local test**: the target window (the browser) is shown recursively inside the captured image — expected behavior; for a demo, use two machines with the real IP.
 
 ### Web client controls
 
 ![CloudRender Web client: top toolbar and live stats in the top-right; the video shows a remote Windows 11 desktop](docs/images/usage-demo.png)
 
-- **Connect**: click **Connect** to establish the session (the button then reads Disconnect); the top-right corner shows live status plus fps/bitrate/resolution;
+- **Connect**: confirm the token (pre-filled `123456`) and click **Connect** to establish the session (the button then reads Disconnect); the top-right corner shows live status plus fps/bitrate/resolution;
 - **Take over keyboard/mouse**: click the video area once and keyboard input goes straight to the remote (Chinese IME input works directly); mouse movement/wheel/buttons are forwarded in real time;
-- **Lock**: lock the remote desktop immediately (equivalent to Win+L); to unlock, type your Windows password directly in the browser view (the server must run as administrator, otherwise only a still frame is pushed after locking);
+- **Lock**: lock the remote desktop immediately (equivalent to Win+L); to unlock, type your Windows password directly in the browser view. The server wakes the password box through the secure-desktop channel right after locking, so the first character is not swallowed; the server must run as administrator, otherwise only a still frame is pushed after locking;
+- **Audio**: the `Audio` button streams the remote desktop's system mix (WASAPI loopback) to the page; it toggles independently of the video and never renegotiates the session. Both server editions support it; the button is available once connected;
 - **Fullscreen**: local browser fullscreen (equivalent to F11, Esc to exit); once capture is on, F11 is forwarded to the remote, so use this button for local fullscreen;
 - **Pointer lock (relative mode)**: the mouse drives the remote via relative movement (good for games etc.); uncheck it when you need to type.
 
@@ -120,7 +122,7 @@ python cpp_server.py --port 8081
 ```python
 from cloudrender import CloudRenderServer, MssScreenSource, WindowsInputInjector
 
-server = CloudRenderServer(port=8080)
+server = CloudRenderServer(port=8080, token="123456")  # the page Token box defaults to the same value
 server.run(
     source_factory=lambda info: MssScreenSource(monitor=1, max_fps=30),
     injector_factory=lambda info: WindowsInputInjector(),
@@ -172,7 +174,7 @@ cloudrender/
 ## Security notes
 
 - Input injection is equivalent to local keyboard/mouse — never expose it to untrusted clients;
-- Listens on localhost/LAN by default; exposing it to the public internet requires your own HTTPS/WSS front end plus authentication (token);
+- Listens on localhost/LAN by default; the default token `123456` is public knowledge, so change `--token` (and the page field) before any real use; exposing it to the public internet still requires your own HTTPS/WSS front end plus authentication (token);
 - On Windows, injection is subject to UIPI (cannot inject into windows of a higher integrity level); see [docs/integration.md](docs/integration.md).
 
 ---
@@ -275,13 +277,14 @@ python cpp_server.py --port 8081
 
 - **打开页面**:Python 版 `http://localhost:8080/`、C++ 版 `http://localhost:8081/`;点击 **Connect** 建立会话,再点击视频画面即可用键鼠控制本机;
 - **局域网**:在另一台电脑上打开 `http://<本机IP>:<端口>`(首次运行时在 Windows 防火墙弹窗中选择"允许");
+- **Token(访问口令)**:顶部工具栏有 Token 输入框,默认已填 `123456`,与两版服务端 `--token` 的默认值一致(`--token ""` 关闭校验);正式使用前请改掉默认口令,连接前在框内填入新值;口令错误时返回 4001,页面提示 `Token rejected` 并停止自动重连;
 - **本机测试**:目标窗口(浏览器)会递归显示在捕获画面中,属正常现象;体验演示请用两台机器(真实 IP)。
 
 ### Web 客户端操作
 
 ![CloudRender Web 客户端:顶部工具栏,右上角实时状态;画面为远程 Windows 11 桌面](docs/images/usage-demo.png)
 
-- **Connect**:点击建立会话(按钮随即变为 Disconnect);右上角显示实时状态与 fps/码率/分辨率;
+- **Connect**:确认 Token 框中的口令(默认 `123456`)后点击建立会话(按钮随即变为 Disconnect);右上角显示实时状态与 fps/码率/分辨率;
 - **接管键鼠**:点击一次视频画面后,键盘输入直达远端(中文输入法可直接使用);鼠标移动/滚轮/按键实时转发;
 - **Lock**:立即锁定远程桌面(等效 Win+L);解锁时直接在浏览器画面中输入 Windows 密码(服务端需以管理员身份运行,否则锁屏后仅推送静帧);
 - **Fullscreen**:本浏览器全屏(等效 F11,Esc 退出);捕获开启后 F11 会被转发到远端,本地全屏请使用该按钮;
@@ -294,7 +297,7 @@ python cpp_server.py --port 8081
 ```python
 from cloudrender import CloudRenderServer, MssScreenSource, WindowsInputInjector
 
-server = CloudRenderServer(port=8080)
+server = CloudRenderServer(port=8080, token="123456")  # 页面 Token 框默认值一致
 server.run(
     source_factory=lambda info: MssScreenSource(monitor=1, max_fps=30),
     injector_factory=lambda info: WindowsInputInjector(),
@@ -346,7 +349,7 @@ cloudrender/
 ## 安全提示
 
 - 输入注入等同本机键鼠,请勿对不受信任的客户端开放;
-- 默认监听本机/局域网;暴露公网必须自行前置 HTTPS/WSS 与认证(token);
+- 默认监听本机/局域网;默认口令 `123456` 为公开值,正式使用前必须改掉;暴露公网仍必须自行前置 HTTPS/WSS 与认证(token);
 - Windows 下注入受 UIPI 限制(无法向更高完整性级别的窗口注入),详见 [docs/integration.md](docs/integration.md)。
 
 [返回英文](#english)

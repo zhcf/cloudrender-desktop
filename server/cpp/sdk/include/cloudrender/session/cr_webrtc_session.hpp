@@ -2,9 +2,11 @@
  * CloudRender WebRTC 会话层(C++)
  *
  * 以 libwebrtc 原生 API 实现服务端 offer 会话,直连 nativecore 适配器(零拷贝语义):
- *  - CreateOffer:创建 PeerConnection + 视频轨(截屏源)+ input/events DataChannel + offer
+ *  - CreateOffer:创建 PeerConnection + 视频轨(截屏源)+ 音频轨 + input/events
+ *    DataChannel + offer
  *  - HandleSignal:answer / ice / disconnect
  *  - StartStreaming:帧泵线程(取最新帧 → BGRA→I420 → VideoTrackSource)
+ *  - SetAudioEnabled:开关桌面音频(WASAPI loopback 采集系统混音 → 音频源)
  *  - 输入通道二进制帧经 cr::wire 解码后直接回调注入器
  *
  * 信令传输层(WebSocket 等)由上层接入:本类只产生/消费 JSON 片段,
@@ -73,6 +75,11 @@ class PeerSession {
   /// 设置视频目标码率(bps;min=max 固定)。运行期任意线程可调,幂等;
   /// bps<=0/未就绪/提交失败返回 false。connected 后周期重申效果最佳。
   bool SetBitrate(int bitrate_bps);
+
+  /// 开关桌面音频(系统混音)传输:开=启动 WASAPI loopback 采集并经音频轨
+  /// 发送,关=停止采集并静音。音频轨常驻 offer,切换不触发重协商;任意线程
+  /// 可调,幂等。音频轨不可用/会话已关闭返回 false。
+  bool SetAudioEnabled(bool on);
 
   /// 安全桌面(锁屏)模式:开启后帧泵改推 PushSecureFrame 注入的帧(普通
   /// 权限进程锁屏时无法抓屏),输入帧经 on_signal("secure_input",

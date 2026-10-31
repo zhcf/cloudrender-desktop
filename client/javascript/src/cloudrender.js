@@ -131,6 +131,7 @@ export class CloudRenderClient {
   constructor(url, options = {}) {
     this.url = url;
     this.video = options.video || null;             // HTMLVideoElement(可选,由 demo 自行处理也能收)
+    this.audio = options.audio || null;             // HTMLAudioElement(可选;缺省内部创建)
     this.token = options.token || null;
     // 默认不配 STUN:局域网/直连场景 host 候选即可连通,而公网 STUN 不可达时
     // ICE 收集要等到超时(实测拖慢协商约 5s);需要 NAT 穿越时显式传入 iceServers
@@ -156,6 +157,9 @@ export class CloudRenderClient {
     this._reconnectAttempts = 0;
     this._closedByUser = false;
     this._stream = null;
+    this._audioStream = null;
+    this._audioEl = null;
+    this.audioEnabled = false;                 // 桌面音频传输开关(服务端采集系统混音)
     this._statsTimer = null;
     this._remoteResolution = null;
     this._windowListeners = [];
@@ -284,6 +288,14 @@ export class CloudRenderClient {
       case "stats":
         this._emit("stats", msg.payload || {});
         break;
+      case "audio_state": {
+        // 服务端回执实际状态(ok=false:音频轨不可用/采集失败)
+        const p = msg.payload || {};
+        this.audioEnabled = !!p.enabled;
+        if (this._audioEl) this._audioEl.muted = !this.audioEnabled;
+        this._emit("audiostate", p);
+        break;
+      }
       case "error":
         this._emit("error", msg.payload);
         break;
@@ -311,6 +323,12 @@ export class CloudRenderClient {
     };
     this.pc.ontrack = (ev) => {
       const stream = ev.streams[0] || new MediaStream([ev.track]);
+      if (ev.track.kind === "audio") {
+        // 远端桌面音频:与视频同一 MediaStream;开关只控制本地静音/播放
+        this._attachRemoteAudio(stream);
+        this._emit("track", ev.track, stream);
+        return;
+      }
       this._stream = stream;
       if (this.video) {
         this.video.srcObject = stream;
@@ -336,6 +354,12 @@ export class CloudRenderClient {
     this.dcInput = null;
     this.dcEvents = null;
     this._stream = null;
+    this._audioStream = null;
+    this.audioEnabled = false;
+    if (this._audioEl) {
+      try { this._audioEl.pause(); } catch { /* noop */ }
+      this._audioEl.srcObject = null;
+    }
     if (this._statsTimer) { clearInterval(this._statsTimer); this._statsTimer = null; }
     if (this.ws) {
       const ws = this.ws;
@@ -378,6 +402,48 @@ export class CloudRenderClient {
   /* 锁定远端桌面:服务端执行 LockWorkStation(等效 Win+L / Ctrl+Alt+Del→锁定);
      锁屏后画面自动切到安全桌面,可直接输入密码解锁 */
   lockScreen() { this._sendSignal({ type: "lock_screen" }); }
+
+  /* ---------- 远端桌面音频 ---------- */
+  /* 音频轨到达即挂到 audio 元素:默认静音待开关打开(服务端采集默认关闭,
+     未开启时听到静音是预期)。 */
+  _attachRemoteAudio(stream) {
+    let el = this.audio;
+    if (!el) {
+      if (!this._audioEl && typeof Audio !== "undefined") {
+        this._audioEl = new Audio();
+        this._audioEl.autoplay = true;
+      }
+      el = this._audioEl;
+    }
+    if (!el) return;
+    this._audioEl = el;
+    this._audioStream = stream;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    el.muted = !this.audioEnabled;
+    this._playAudioEl();
+  }
+
+  _playAudioEl() {
+    const el = this._audioEl;
+    if (!el || typeof el.play !== "function") return;
+    try {
+      const p = el.play();
+      if (p && typeof p.catch === "function") p.catch(() => { /* 需用户手势 */ });
+    } catch { /* noop */ }
+  }
+
+  /* 开关远端桌面音频传输(服务端 WASAPI loopback 采集系统混音)。
+     需服务端 server_caps.audio=true;音频轨常驻 offer,切换不重协商。 */
+  setAudioEnabled(enabled) {
+    const on = !!enabled;
+    this.audioEnabled = on;
+    if (this._audioEl) {
+      this._audioEl.muted = !on;
+      if (on) this._playAudioEl();
+    }
+    this._sendSignal({ type: "audio", payload: { enabled: on } });
+    return on;
+  }
 
   /* ---------- 统计上报 ---------- */
   async _reportStats() {

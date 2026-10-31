@@ -1,9 +1,10 @@
 /* CloudRender Desktop 前端逻辑:输入采集 → SDK → 服务端注入 */
 /* 页面由服务端内置托管(与 /ws 同端口):信令地址默认取页面同源,免手工填写;
-   ?ws= 显式覆盖(调试/远程场景),?token= 透传服务端校验 */
+   ?ws= 显式覆盖(调试/远程场景),?token= 预填工具栏的 Token 输入框
+   (连接时以输入框为准,服务端默认口令 123456) */
 /* SDK 引用带版本(与 index.html 的 app.js?v= 同步升级):无版本的模块 URL
    会被浏览器按启发式规则直接使用旧缓存(不发请求),导致页面脚本与 SDK 版本错位 */
-import CloudRenderClient from "../javascript/src/cloudrender.js?v=16";
+import CloudRenderClient from "../javascript/src/cloudrender.js?v=20";
 
 /* 从 script src 的 ?v= 参数取脚本版本,连接日志中展示(用于确认浏览器加载的代码版本) */
 const UI_VERSION = new URL(import.meta.url).searchParams.get("v") || "?";
@@ -19,13 +20,31 @@ const logLine = (msg) => {
 
 let client = null;
 let connected = false;
+let tokenRejected = false;       // 最近一次断开是否由口令错误引起
 let capturingInput = false;      // 是否把本页输入发往远端
 let pointerLocked = false;
 let lastGamepad = {};
 
+/* 分辨率状态:以视频实际解码元数据为准。
+   ready 里的捕获分辨率在首帧到达前可能为 0(如 nativecore 刚启动),
+   且锁屏画面/窗口捕获尺寸变化时 videoWidth/Height 会实时更新 */
+function updateVideoResolution() {
+  if (video.videoWidth > 0 && video.videoHeight > 0) {
+    $("stat-res").textContent = `${video.videoWidth}x${video.videoHeight}`;
+  }
+}
+video.addEventListener("loadedmetadata", updateVideoResolution);
+video.addEventListener("resize", updateVideoResolution);
+
 /* ---------- 连接 ---------- */
 /* 信令地址:与页面同源(服务端内置托管,页面与 ws 同端口);?ws= 覆盖调试/远程场景 */
 const _qs = new URLSearchParams(location.search);
+/* 访问口令:URL ?token= 只用于预填;连接时读取输入框,换口令后可直接重连。
+   输入框默认 123456,与两个服务端 --token 的默认值一致 */
+const tokenInput = $("input-token");
+const urlToken = (_qs.get("token") || "").trim();
+if (urlToken) tokenInput.value = urlToken;
+
 function signalUrl() {
   const override = _qs.get("ws");
   if (override) return override;
@@ -43,6 +62,14 @@ $("btn-connect").addEventListener("click", () => {
   doConnect();
 });
 
+/* 口令框回车直接连接:输入框在工具栏内,按键不会转发到远端 */
+tokenInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !connected) {
+    e.preventDefault();
+    doConnect();
+  }
+});
+
 /* 锁屏按钮:发 lock_screen 信令,服务端 LockWorkStation 锁定远端桌面(等效 Win+L);
    锁屏后画面自动切到安全桌面,可在浏览器中直接输入密码解锁 */
 $("btn-lock").addEventListener("click", () => {
@@ -52,7 +79,8 @@ $("btn-lock").addEventListener("click", () => {
     return;
   }
   client.lockScreen();
-  logLine("Lock screen command sent");
+  focusKbd();   // 焦点留在捕获区:锁屏后按键直达安全桌面(唤醒/输入密码)
+  logLine("Lock command sent; the password box appears when the lock screen is ready");
 });
 
 /* 全屏按钮:浏览器级全屏(本地,不影响发往远端的按键)。捕获状态下 F11 会被
@@ -71,16 +99,33 @@ document.addEventListener("fullscreenchange", () => {
   $("btn-fullscreen").textContent = isFullscreen() ? "Exit fullscreen" : "Fullscreen";
 });
 
+/* 音频开关:桌面音频轨常驻 offer,开关只控制服务端是否采集系统混音
+   (开启后 WASAPI loopback 采集默认播放设备),切换不触发重协商 */
+function updateAudioButton(on) {
+  const btn = $("btn-audio");
+  btn.textContent = `Audio: ${on ? "On" : "Off"}`;
+  btn.classList.toggle("on", on);
+}
+$("btn-audio").addEventListener("click", () => {
+  if (!client || !connected) { logLine("Not connected: the Audio button is available after the session is established"); return; }
+  if (typeof client.setAudioEnabled !== "function") {   // 脚本版本错位(旧 SDK 被浏览器缓存)
+    logLine("Frontend script is outdated: press Ctrl+F5 to hard refresh, then retry");
+    return;
+  }
+  const on = client.setAudioEnabled(!client.audioEnabled);
+  updateAudioButton(on);   // 乐观更新;服务端 audio_state 回执校正
+});
+
 function doConnect() {
   const url = signalUrl();
-  const token = (_qs.get("token") || "").trim();
+  const token = tokenInput.value.trim();
   // 单实例治理:重复发起连接前先销毁旧实例——旧实例的自动重连循环
   // 若与新实例并存,会与服务端"同客户端踢旧"治理互相踢除、无限重连
   if (client) {
     try { client.disconnect(); } catch (e) { /* noop */ }
     client = null;
   }
-  client = new CloudRenderClient(url, { video, token: token || null });
+  client = new CloudRenderClient(url, { video, audio: $("remote-audio"), token: token || null });
   bindClient(client);
   client.connect();
 }
@@ -94,6 +139,7 @@ function bindClient(c) {
     if (s === "connected" || s === "ready") {
       $("btn-connect").textContent = "Disconnect";
       connected = true;
+      tokenInput.disabled = true;   // 会话已建立:改口令需先断开
       $("overlay").classList.add("hidden");
     } else if (s === "closed" || s === "idle") {
       $("btn-connect").textContent = "Connect";
@@ -101,12 +147,29 @@ function bindClient(c) {
       capturingInput = false;
       exitPointerLock();
       $("overlay").classList.remove("hidden");
+      updateAudioButton(false);
+      $("btn-audio").disabled = false;   // 未连接时点击给出提示
+      tokenInput.disabled = false;
+    } else if (s === "connecting") {
+      updateAudioButton(false);
+      $("btn-audio").disabled = false;
+      tokenInput.disabled = false;   // 连接/重连期间可改口令,下次 Connect 生效
     }
   });
+  c.on("connected", (payload) => {
+    // 服务端能力:aiortc 版(8080)audio=false → 禁用音频开关
+    const audioOk = payload?.server_caps?.audio !== false;
+    $("btn-audio").disabled = !audioOk;
+    $("btn-audio").title = audioOk
+      ? "Transmit the remote desktop's system audio (WASAPI loopback); toggled without renegotiation"
+      : "Audio is not supported by this server build";
+  });
   c.on("ready", (payload) => {
-    if (payload.resolution) {
-      $("stat-res").textContent = `${payload.resolution.width}x${payload.resolution.height}`;
+    const res = payload.resolution;
+    if (res && res.width > 0 && res.height > 0) {
+      $("stat-res").textContent = `${res.width}x${res.height}`;
     }
+    updateVideoResolution();   // 服务端未给出有效尺寸时由视频元数据兜底
     logLine(`Session established source=${payload.source} codec=${payload.codec} ui=v${UI_VERSION}`);
     enableCapture();
   });
@@ -116,8 +179,30 @@ function bindClient(c) {
       $("stat-br").textContent = `${s.video.bitrate_kbps} kbps`;
     }
   });
-  c.on("error", (e) => logLine(`Server error: ${e.message} (code=${e.code})`));
-  c.on("close", (r) => logLine(`Session closed: ${r || "unknown"}`));
+  c.on("audiostate", (p) => {
+    updateAudioButton(!!p.enabled);
+    if (p.ok === false) {
+      logLine("Desktop audio unavailable: the server could not start system-audio capture");
+    } else {
+      logLine(`Desktop audio ${p.enabled ? "enabled (system mix)" : "disabled"}`);
+    }
+  });
+  c.on("error", (e) => {
+    if (e.code === 4001) {   // 口令错误:服务端立即断开;停止自动重连并放开输入框
+      tokenRejected = true;
+      logLine("Token rejected: check the token and click Connect again");
+      c.disconnect();
+      tokenInput.disabled = false;
+      tokenInput.focus();
+      tokenInput.select();
+      return;
+    }
+    logLine(`Server error: ${e.message} (code=${e.code})`);
+  });
+  c.on("close", (r) => {
+    if (!tokenRejected) logLine(`Session closed: ${r || "unknown"}`);
+    tokenRejected = false;
+  });
   c.on("track", () => { video.hidden = false; });
   c.on("eventframe", (bytes) => {
     for (const ev of CloudRenderClient.parseEventFrame(bytes)) {

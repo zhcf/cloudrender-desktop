@@ -14,6 +14,7 @@ client/javascript/
 
 1. Start either server first (Python edition on 8080 or C++ edition on 8081; see "two runnable servers" in the root README);
 2. Open the server address in a browser (e.g. `http://localhost:8080/`; the 8081 edition is `http://localhost:8081/`), click Connect, then click the video area to enter control mode;
+3. Both servers default to `--token 123456` and the page pre-fills the same value; change it in the launch command and the page box (or pass `token` to the SDK) before exposing the service;
 
 ## SDK usage
 

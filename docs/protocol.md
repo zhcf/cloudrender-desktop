@@ -19,7 +19,7 @@ URN: urn:cloudrender:protocol:v1
 
 Example signaling channel address: `ws://host:8080/ws?token=xxx&width=1920&height=1080`
 
-The server may require authentication; `token` is the optional credential. Signaling is only used to establish the session and exchange SDP/ICE; once the session is up, both media and input run over WebRTC.
+The server may require authentication; `token` is the credential and both servers default to `123456` (an empty string disables the check). Signaling is only used to establish the session and exchange SDP/ICE; once the session is up, both media and input run over WebRTC.
 
 ### 1.1 Connection flow
 
@@ -56,6 +56,7 @@ Each message is one JSON object and must carry `type`:
 | `ice` | `candidate: string or {candidate, sdpMid, sdpMLineIndex}` | Client ICE candidate |
 | `stats` | `stats{...}` | Client stats (see §4), every 1–2s |
 | `lock_screen` | — | Lock the remote desktop (the server calls LockWorkStation, equivalent to Win+L). After locking, the picture switches to the secure desktop and the password can be typed directly to unlock |
+| `audio` | `enabled: bool` | Toggle desktop system-audio transmission. The audio track is always present in the offer (when `server_caps.audio=true`), so toggling only starts/stops server-side WASAPI loopback capture and never renegotiates |
 | `disconnect` | `reason: string` | Disconnect voluntarily |
 
 ### 1.4 Server → Client
@@ -66,6 +67,7 @@ Each message is one JSON object and must carry `type`:
 | `offer` | `sdp: string` | WebRTC Offer SDP; the server is the offerer (standard for cloud desktops; enables dynamic resolution negotiation) |
 | `ice` | `candidate` | Server ICE candidate |
 | `ready` | `resolution{width,height}, codec, bitrate_kbps, source: "desktop"\|"window"\|"engine"` | Video track ready |
+| `audio_state` | `enabled: bool, ok: bool` | Applied desktop-audio state. `ok=false` means the server cannot start system-audio capture (audio track unavailable) |
 | `stats` | `stats{...}` | Server stats (§4) |
 | `error` | `code: int, message: string, fatal: bool` | Error. When fatal, the server closes the connection afterwards |
 | `close` | `reason: string` | Session ended |
@@ -90,7 +92,7 @@ Each message is one JSON object and must carry `type`:
 
 - **Direction**: unidirectional — the server only sends (recvonly → sendonly).
 - **Video track** (fixed mid semantics): codec priority `H264 > VP8 > AV1`, which must be listed in the offer m-lines (H264 enables GPU hardware encode/decode for cloud desktop scenarios). Default 30fps.
-- **Audio track**: optional, codec `opus/48000/2`. Off by default.
+- **Audio track**: optional, codec `opus/48000/2`. Off by default. Both server editions keep the track present in the offer (16-bit PCM stereo captured from the default render device via WASAPI loopback) and start muted; the `audio` signaling message starts/stops capture without renegotiation.
 - **SDP rule**: the client answer may only pick codecs and resolutions already listed in the offer; it must not add new ones.
 
 ### 2.2 DataChannel list

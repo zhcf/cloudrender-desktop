@@ -72,8 +72,10 @@ class CloudRenderServer:
 
     编程式用法:
 
-        server = CloudRenderServer(port=8080)
+        server = CloudRenderServer(port=8080, token="123456")
         server.run(source_factory, injector_factory)
+
+    注:token 默认 None(不校验),CLI/启动脚本默认 123456。
     """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 8080,
@@ -192,13 +194,16 @@ class CloudRenderServer:
                 session_id=session_id,
                 server_caps={
                     "codecs": ["h264", "vp8"],
-                    "audio": False,
+                    # Python 版同样带系统混音音频轨(默认静音,客户端开关控制)
+                    "audio": True,
                     "max_sessions": self.max_sessions,
                 }))
-            # 就绪信息:分辨率以实际捕获为准
+            # 就绪信息:分辨率以实际捕获为准(nativecore 首帧前通过
+            # cr_capture_get_size 已可得;此处再短暂等待首帧兜底)
+            width, height = await self._wait_source_size(source)
             await ws.send_json(protocol.make_message(
                 "ready",
-                resolution={"width": source.width, "height": source.height},
+                resolution={"width": width, "height": height},
                 codec="h264/vp8",
                 bitrate_kbps=0,
                 source="desktop"))
@@ -239,6 +244,21 @@ class CloudRenderServer:
                 self._session_clients.pop(session_id, None)
                 self._session_ws.pop(session_id, None)
         return ws
+
+    @staticmethod
+    async def _wait_source_size(source, timeout: float = 1.0) -> tuple:
+        """等待捕获源给出有效分辨率(首帧前的 nativecore 可能仍为 0)。
+
+        正常情况下 source.width 在 start 后即有效(视频源默认捕获不到
+        首帧时也能从 cr_capture_get_size 取得实际尺寸);等待仅作兜底,
+        超时则返回当前值,由客户端用 video 元数据更新状态栏。
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if source.width > 0 and source.height > 0:
+                break
+            await asyncio.sleep(0.02)
+        return int(source.width), int(source.height)
 
     @staticmethod
     def _make_sender(ws: web.WebSocketResponse) -> Callable[[dict], Awaitable[None]]:
@@ -349,7 +369,8 @@ def main() -> None:
     parser.add_argument("--bitrate", type=int, default=6000,
                         help="视频目标码率 kbps(默认 6000,1080p 桌面清晰所需;"
                              "过低会糊,局域网可上调)")
-    parser.add_argument("--token", default=None, help="可选鉴权 token(ws?token=...)")
+    parser.add_argument("--token", default="123456",
+                        help="连接鉴权 token(默认 123456;传空字符串关闭校验)")
     parser.add_argument("--max-sessions", type=int, default=1,
                         help="最大并发会话数(默认 1;nativecore 抓屏互斥,多会话需先做共享捕获)")
     parser.add_argument("--capture", choices=["auto", "mss", "dxgi"], default="auto",
@@ -391,6 +412,7 @@ def main() -> None:
     server = CloudRenderServer(host=args.host, port=args.port, token=args.token,
                                max_sessions=args.max_sessions, fps=args.fps,
                                bitrate=args.bitrate * 1000)
+    logger.info("连接鉴权: %s", "已启用" if args.token else "未启用")
     logger.info("CloudRender 云桌面 Demo 启动: http://%s:%d "
                 "(内置 Web UI,页面与信令同端口)", args.host, args.port)
     try:

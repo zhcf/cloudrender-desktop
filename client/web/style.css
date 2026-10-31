@@ -14,6 +14,17 @@ body { display: flex; flex-direction: column; }
 button { background: var(--accent); border: 0; color: #fff; padding: 7px 16px;
   border-radius: 6px; cursor: pointer; font-weight: 600; }
 button:hover { filter: brightness(1.15); }
+button.on { background: var(--ok); }
+button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+/* 访问口令输入框:与工具栏按钮同高;会话建立后禁用,断开或口令错误时恢复 */
+.token-field { color: var(--dim); display: flex; gap: 6px; align-items: center; }
+.token-field input { width: 104px; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+  font: inherit; }
+.token-field input:focus { outline: none; border-color: var(--accent); }
+.token-field input:disabled { opacity: .55; }
+/* 远端音频元素无控件、不占布局,仅作为音频输出端 */
+#remote-audio { display: none; }
 .chk { color: var(--dim); display: flex; gap: 6px; align-items: center; cursor: pointer; }
 #status-bar { display: flex; gap: 14px; align-items: center; color: var(--dim); margin-left: auto; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #555; display: inline-block; }

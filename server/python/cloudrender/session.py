@@ -18,6 +18,7 @@ from aiortc.rtcicetransport import RTCIceCandidate
 
 from . import protocol
 from . import wdesktop
+from .audio import DesktopAudioTrack, LoopbackCapture
 from .capture import FrameSource, secure_desktop_active
 from .inject import InputInjector
 from .streamer import CaptureVideoTrack
@@ -165,6 +166,25 @@ def _lock_workstation() -> bool:
         return False
 
 
+def _inject_login_wake_key() -> bool:
+    """向安全桌面注入一次无副作用的 Shift(按下+抬起),唤醒密码输入框。
+
+    Windows 锁定后默认停在锁屏壁纸,需一次按键才显示密码/PIN 输入界面,
+    而首个按键会被"唤醒"动作吞掉(不进输入框)。远程锁屏时由 worker 先
+    注入 Shift 完成唤醒,浏览器随后输入的第一个字符就能进入密码框。
+    返回是否注入成功(worker 不在线/安全桌面拒绝输入时为 False)。
+    """
+    try:
+        if not wdesktop.ping():
+            return False
+        down = wdesktop.send_key(0x10, True)    # VK_SHIFT
+        up = wdesktop.send_key(0x10, False)     # 无论按下是否成功都复位
+        return bool(down and up)
+    except Exception:
+        logger.debug("唤醒锁屏登录界面失败", exc_info=True)
+        return False
+
+
 class PeerSession:
     def __init__(self, source: FrameSource, injector: InputInjector,
                  on_signal: Callable[[dict], Awaitable[None]],
@@ -188,6 +208,11 @@ class PeerSession:
             RTCIceServer(urls=s) for s in (ice_servers or [])])
         self.pc = RTCPeerConnection(configuration=config)
         self.track = CaptureVideoTrack(source, fps=fps)
+        # 桌面音频(系统混音 loopback):轨常驻 offer,开关只启停采集
+        self._audio_capture = LoopbackCapture()
+        self.audio_track = DesktopAudioTrack(self._audio_capture)
+        self._audio_sender = None
+        self._audio_enabled = False
         self.sender = None
         self._dc_input = None
         self._dc_events = None
@@ -195,6 +220,7 @@ class PeerSession:
         self._stats_task: Optional[asyncio.Task] = None
         self._bitrate_task: Optional[asyncio.Task] = None
         self._guard_task: Optional[asyncio.Task] = None
+        self._wake_task: Optional[asyncio.Task] = None
         self._high_il_notify_ts = 0.0  # 高完整性窗口提示节流(monotonic 秒)
 
         self._bytes_sent = 0
@@ -230,6 +256,8 @@ class PeerSession:
         """准备捕获、挂轨、建数据通道;不发送 offer。"""
         await self.source.start()
         self.sender = self.pc.addTrack(self.track)
+        # 音频轨同样常驻:客户端总能收到 audio track,切换音频不重协商
+        self._audio_sender = self.pc.addTrack(self.audio_track)
         # 注册码率下限:REMB 下压将在 RTCP 处理里被立即纠正回目标值
         _REMB_FLOOR[id(self.sender)] = self.bitrate
         # aiortc 编码器惰性创建且默认码率很低(H264 1Mbps/VP8 500kbps),
@@ -286,6 +314,8 @@ class PeerSession:
             self.track.force_keyframe()
         elif mtype == "lock_screen":
             await self._lock_screen()
+        elif mtype == "audio":
+            await self._set_audio(bool(payload.get("enabled")))
         elif mtype == "disconnect":
             await self.close()
         # stats / ping 上报由 stats_loop 处理
@@ -299,9 +329,60 @@ class PeerSession:
         """
         if await asyncio.to_thread(_lock_workstation):
             logger.info("收到锁屏请求:已锁定桌面(等效 Win+L)")
+            # 锁屏壁纸→密码框需要一次按键;锁屏成功后由 worker 注入
+            # Shift 唤醒,避免用户输入的首个字符被唤醒动作吞掉
+            if self._wake_task and not self._wake_task.done():
+                self._wake_task.cancel()
+            self._wake_task = asyncio.create_task(self._wake_login_ui())
         else:
             logger.warning("锁屏请求失败:服务端不在交互式会话")
             self._send_toast("Lock failed: the server is not in an interactive desktop session.")
+
+    async def _wake_login_ui(self) -> None:
+        """锁屏后唤醒密码输入框。
+
+        必须在安全桌面真正成为输入桌面后再注入:锁屏切换约需 1-3s,
+        过早注入会落在切换窗口内被丢弃;同时 10s 后系统会退回锁屏壁纸
+        (输入桌面变回 Default),过早放弃则密码框不再出现。
+        """
+        try:
+            for _ in range(14):
+                await asyncio.sleep(0.5)
+                if self._closed:
+                    return
+                if not await asyncio.to_thread(secure_desktop_active):
+                    continue
+                # 安全桌面已激活:再留 0.3s 给 LogonUI 布局,然后注入 Shift
+                await asyncio.sleep(0.3)
+                if await asyncio.to_thread(_inject_login_wake_key):
+                    logger.info("锁屏登录界面已唤醒: 已向安全桌面注入 Shift")
+                    return
+            logger.warning("锁屏登录界面唤醒失败: 安全桌面输入不可用"
+                           "(服务端需以管理员运行;仍可在画面中按键唤醒)")
+        except asyncio.CancelledError:
+            raise
+
+    async def _set_audio(self, on: bool) -> None:
+        """开关桌面音频(系统混音 loopback)传输并回执实际状态。
+
+        音频轨在 offer 中常驻(客户端总能收到 audio track),本开关只控制
+        服务端是否采集系统混音并发送:开启后启动 WASAPI loopback 采集,
+        关闭后停采并输出静音;切换不触发 SDP 重协商。
+        """
+        ok = False
+        try:
+            if on:
+                ok = await asyncio.to_thread(self._audio_capture.start, 2.0)
+            else:
+                await asyncio.to_thread(self._audio_capture.stop)
+                ok = True
+        except Exception:
+            logger.exception("桌面音频采集开关失败")
+        self._audio_enabled = bool(on and ok)
+        logger.info("音频传输: 请求=%s 实际=%s%s", on, self._audio_enabled,
+                    "" if ok else " (失败: 无法启动系统混音采集)")
+        await self._signal("audio_state", enabled=self._audio_enabled,
+                           ok=bool(ok))
 
     async def _apply_input(self, ev) -> None:
         # 锁屏/安全桌面(密码输入界面):输入须由 SYSTEM worker 注入
@@ -673,6 +754,13 @@ class PeerSession:
             self._bitrate_task.cancel()
         if self._guard_task:
             self._guard_task.cancel()
+        if self._wake_task:
+            self._wake_task.cancel()
+        # 停止音频采集(线程内 COM 调用限时 join,不阻塞事件循环)
+        try:
+            await asyncio.to_thread(self._audio_capture.stop)
+        except Exception:
+            logger.warning("停止桌面音频采集异常", exc_info=True)
         # 先释放帧源(工作线程执行并限时):bettercam release 等阻塞 COM 调用
         # 若在事件循环线程里卡死会冻死整个进程(历史故障:服务端静默失联);
         # 且必须先于 pc.close() 归还 DXGI 占用,否则占用可能因后续卡顿

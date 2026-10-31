@@ -7,7 +7,7 @@ rem file server); worker exits when its parent dies as fallback
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0_kill_server.ps1"
 cd /d "%~dp0..\server\python"
 set PYTHONIOENCODING=utf-8
-"%~dp0..\.venv\Scripts\python.exe" -u -X utf8 -m cloudrender.server --port 8080 --fps 60 --bitrate 10000
+"%~dp0..\.venv\Scripts\python.exe" -u -X utf8 -m cloudrender.server --port 8080 --fps 60 --bitrate 10000 --token 123456
 echo.
 echo [server] exited (press any key to close this window).
 pause

@@ -3,6 +3,8 @@ aiohttp>=3.9
 aiortc>=1.7        # WebRTC(含 av/numpy 依赖链)
 numpy>=1.24
 mss>=9.0           # 纯 Python 桌面捕获 fallback(可选,但 Demo 默认依赖)
+comtypes>=1.2      # 桌面系统音频 WASAPI loopback 采集(Windows)
 
 # 可选:
-#   pydub / 无 — v1 不支持音频轨
+#   bettercam — DXGI Desktop Duplication 软抓(单显示器加速)
+#   nativecore.dll — DXGI 零拷贝捕获(仓库内构建产物,未安装时自动回退)

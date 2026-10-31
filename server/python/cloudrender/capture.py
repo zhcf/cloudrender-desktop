@@ -1009,6 +1009,9 @@ class NativeCoreCaptureSource(FrameSource):
         self._cb = None
         self._queue: "queue.Queue[Optional[CapturedFrame]]" = queue.Queue(maxsize=4)
         self._frame: Optional[CapturedFrame] = None
+        self._width = 0
+        self._height = 0
+        self._was_secure = False
         self._lock = threading.Lock()
 
     @property
@@ -1017,11 +1020,12 @@ class NativeCoreCaptureSource(FrameSource):
 
     @property
     def width(self) -> int:
-        return self._frame.width if self._frame else 0
+        # 首帧前 cr_capture_get_size 已知实际尺寸(_width),避免 ready 里 0x0
+        return self._frame.width if self._frame else self._width
 
     @property
     def height(self) -> int:
-        return self._frame.height if self._frame else 0
+        return self._frame.height if self._frame else self._height
 
     @property
     def origin(self) -> tuple:
@@ -1044,6 +1048,10 @@ class NativeCoreCaptureSource(FrameSource):
             ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint64]
         lib.cr_capture_start.argtypes = [ctypes.c_void_p]
         lib.cr_capture_stop.argtypes = [ctypes.c_void_p]
+        lib.cr_capture_get_size.restype = ctypes.c_int
+        lib.cr_capture_get_size.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_int32)]
 
     async def start(self) -> None:
         self._lib = find_nativecore()
@@ -1062,6 +1070,8 @@ class NativeCoreCaptureSource(FrameSource):
                                  stride=frame.stride, bgra=buf, pts_us=frame.pts_us)
             with self._lock:
                 self._frame = item
+                self._width = int(frame.width)
+                self._height = int(frame.height)
             try:
                 self._queue.put_nowait(item)
             except queue.Full:
@@ -1086,10 +1096,64 @@ class NativeCoreCaptureSource(FrameSource):
             raise RuntimeError("capture start failed (monitor in use or invalid parameters?)")
         if self._lib.cr_capture_start(self._cap) != 0:
             raise RuntimeError("capture thread failed to start")
-        logger.info("nativecore 捕获已启动 (monitor=%d hwnd=0x%x)", self._monitor, hwnd)
+        # 实际分辨率在 set_target 时已确定:不必等首帧,ready 可直接上报
+        w = ctypes.c_int32()
+        h = ctypes.c_int32()
+        if self._lib.cr_capture_get_size(self._cap, ctypes.byref(w),
+                                         ctypes.byref(h)) == 0:
+            self._width, self._height = int(w.value), int(h.value)
+        logger.info("nativecore 捕获已启动 (monitor=%d hwnd=0x%x 分辨率=%dx%d)",
+                    self._monitor, hwnd, self._width, self._height)
 
     async def get_frame(self) -> Optional[CapturedFrame]:
-        return await asyncio.to_thread(self._queue.get, True, 2.0)  # 2s 超时返回 None
+        if secure_desktop_active():
+            # 锁屏/UAC:nativecore 在安全桌面下抓不到帧(且旧帧不能当作
+            # 锁屏画面推送),改从 SYSTEM worker 取安全桌面帧(密码界面)。
+            if not self._was_secure:
+                self._was_secure = True
+                self._drain_frames()
+            bgra = await asyncio.to_thread(wdesktop.grab_secure,
+                                           self._secure_region())
+            _note_secure_result(bgra is not None)
+            if bgra is None:
+                return None
+            h, w = int(bgra.shape[0]), int(bgra.shape[1])
+            return CapturedFrame(width=w, height=h, stride=w * 4, bgra=bgra,
+                                 pts_us=int(time.time() * 1e6))
+        if self._was_secure:
+            # 解锁:丢弃队列里锁屏前的旧帧,避免画面回跳
+            self._was_secure = False
+            self._drain_frames()
+        _leave_secure()
+        try:
+            return await asyncio.to_thread(self._queue.get, True, 2.0)
+        except queue.Empty:
+            # 2s 无新帧(静态桌面/锁屏切换/捕获暂停):返回 None 交由推流层
+            # 补静止帧。不能把 Empty 抛给上层——那会被当成捕获异常每 2s
+            # 记一条告警,且掩盖真正的抓帧故障
+            return None
+
+    def _secure_region(self) -> dict:
+        """安全桌面帧裁剪区域(与捕获尺寸对齐;worker 抓的是主显示器)。"""
+        w = int(self.width)
+        h = int(self.height)
+        try:
+            pw = int(ctypes.windll.user32.GetSystemMetrics(0))
+            ph = int(ctypes.windll.user32.GetSystemMetrics(1))
+        except Exception:
+            pw = ph = 0
+        if pw > 0 and ph > 0:
+            w = min(w, pw) if w > 0 else pw
+            h = min(h, ph) if h > 0 else ph
+        return {"left": 0, "top": 0, "width": max(1, w),
+                "height": max(1, h)}
+
+    def _drain_frames(self) -> None:
+        try:
+            while True:
+                self._queue.get_nowait()
+        except queue.Empty:
+            pass
 
     def stop_sync(self) -> None:
         if self._cap:
@@ -1098,6 +1162,10 @@ class NativeCoreCaptureSource(FrameSource):
             self._cap = None
         if self in _keepalive:
             _keepalive.remove(self)
+        self._frame = None
+        self._width = 0
+        self._height = 0
+        self._was_secure = False
         # 清空队列
         try:
             while True:

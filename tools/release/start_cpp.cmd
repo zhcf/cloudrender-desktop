@@ -10,10 +10,10 @@ if errorlevel 1 (
 )
 title CloudRender Desktop C++ Server 8081 (admin)
 cd /d "%~dp0"
-echo Starting CloudRender C++ server on port 8081 (fps=60 bitrate=10000)...
+echo Starting CloudRender C++ server on port 8081 (fps=60 bitrate=10000 token=123456)...
 echo Open http://localhost:8081/ in your browser.
 echo.
-"%~dp0cloudrender-desktop-server-cpp.exe" --port 8081 --fps 60 --bitrate 10000
+"%~dp0cloudrender-desktop-server-cpp.exe" --port 8081 --fps 60 --bitrate 10000 --token 123456
 echo.
 echo [server] exited (press any key to close this window).
 pause

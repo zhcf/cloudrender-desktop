@@ -180,7 +180,8 @@ def grab_secure(region) -> Optional["np.ndarray"]:
     """抓一帧安全桌面并按 region 裁剪;失败返回 None(上层推静止帧)。
 
     region 为 mss 风格 dict(left/top/width/height);帧尺寸不小于 region 时
-    裁剪,否则放弃(尺寸不符视为不可用)。
+    裁剪。安全桌面分辨率与用户桌面不一致时(如缩放/分辨率切换中)改推
+    整帧,保证锁屏/密码界面仍然可见;前端按实际帧尺寸显示。
     """
     raw = _grab_raw()
     if raw is None:
@@ -193,8 +194,9 @@ def grab_secure(region) -> Optional["np.ndarray"]:
     rh = int(region["height"])
     if left >= 0 and top >= 0 and left + rw <= w and top + rh <= h:
         img = img[top:top + rh, left:left + rw]
-        return np.ascontiguousarray(img)
-    return None
+    elif (left, top, rw, rh) != (0, 0, w, h):
+        logger.debug("安全桌面帧 %dx%d 与裁剪区 %s 不符,改推整帧", w, h, region)
+    return np.ascontiguousarray(img)
 
 
 def probe() -> bool:

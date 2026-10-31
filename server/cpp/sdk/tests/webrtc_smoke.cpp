@@ -3,15 +3,20 @@
  *
  * 不依赖真实桌面/nativecore:用假帧源与假注入器驱动 cr::session::PeerSession,
  * 验证 libwebrtc facade 初始化、PeerConnection 建立与 offer 生成链路:
- *  - CreateOffer 成功且 SDP 含 m=video(视频轨) 与 m=application(DataChannel)
+ *  - CreateOffer 成功且 SDP 含 m=video(视频轨)、m=audio(桌面音频轨) 与
+ *    m=application(DataChannel)
+ *  - 桌面音频开关可开启 WASAPI loopback 采集并关闭(幂等,不触碰抓屏)
  *  - on_signal 首条信令为 offer
  *
- * 退出码:0=通过;1=CreateOffer 失败;2=缺少 m=video;3=缺少 m=application;4=信令类型不符。
+ * 退出码:0=通过;1=CreateOffer 失败;2=缺少 m=video;3=缺少 m=application;
+ *         4=信令类型不符;5=缺少 m=audio;6=音频开关失败。
  */
 #include <cstdio>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <chrono>
 
 #include "cloudrender/session/cr_webrtc_session.hpp"
 
@@ -86,10 +91,18 @@ int main() {
   const bool ok = session.CreateOffer(&sdp);
 
   const bool has_video = sdp.find("m=video") != std::string::npos;
+  const bool has_audio = sdp.find("m=audio") != std::string::npos;
   const bool has_data = sdp.find("m=application") != std::string::npos;
-  std::printf("CreateOffer=%d sdp=%zuB video=%d app=%d signals=%d\n",
-              ok ? 1 : 0, sdp.size(), has_video ? 1 : 0, has_data ? 1 : 0,
-              signal_count);
+  // 音频开关(默认关闭):开启会启动 WASAPI loopback 采集线程,关闭时 join。
+  // 不依赖本机是否有播放设备:无设备时采集线程静默重试。
+  const bool audio_on = session.SetAudioEnabled(true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  const bool audio_off = session.SetAudioEnabled(false);
+  std::printf(
+      "CreateOffer=%d sdp=%zuB video=%d audio=%d app=%d audio_switch=%d/%d "
+      "signals=%d\n",
+      ok ? 1 : 0, sdp.size(), has_video ? 1 : 0, has_audio ? 1 : 0,
+      has_data ? 1 : 0, audio_on ? 1 : 0, audio_off ? 1 : 0, signal_count);
 
   int rc = 0;
   if (!ok || sdp.empty()) {
@@ -101,6 +114,12 @@ int main() {
   } else if (!has_data) {
     std::printf("SMOKE_FAIL no_application_mline\n");
     rc = 3;
+  } else if (!has_audio) {
+    std::printf("SMOKE_FAIL no_audio_mline\n");
+    rc = 5;
+  } else if (!audio_on || !audio_off) {
+    std::printf("SMOKE_FAIL audio_switch\n");
+    rc = 6;
   } else if (first_signal_type != "offer") {
     std::printf("SMOKE_FAIL signal_type=%s\n", first_signal_type.c_str());
     rc = 4;
